@@ -7,5 +7,9 @@
     "noEmit": true
   },
   "include": ["vitest.config.ts"],
-  "references": [{ "path": "packages/core" }, { "path": "packages/parser-ts" }]
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/parser-ts" },
+    { "path": "packages/indexer" }
+  ]
 }

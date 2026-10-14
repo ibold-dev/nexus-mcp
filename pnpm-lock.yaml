@@ -33,6 +33,18 @@ importers:
         specifier: ^6.8.0
         version: 6.8.0
 
+  packages/indexer:
+    dependencies:
+      '@nexus/core':
+        specifier: workspace:*
+        version: link:../core
+      '@nexus/parser-ts':
+        specifier: workspace:*
+        version: link:../parser-ts
+      ignore:
+        specifier: ^7.0.12
+        version: 7.0.12
+
   packages/parser-ts:
     dependencies:
       '@nexus/core':

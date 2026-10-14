@@ -1,6 +1,12 @@
 import { FalkorDB } from "falkordb";
 
-export type QueryParam = string | number | boolean | null;
+export type QueryParam =
+  | string
+  | number
+  | boolean
+  | null
+  | QueryParam[]
+  | { [key: string]: QueryParam };
 export type QueryParams = Record<string, QueryParam>;
 
 export interface GraphClient {

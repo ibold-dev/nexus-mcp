@@ -1,4 +1,32 @@
 import type { GraphClient } from "./graph-client.js";
+import type { Resolution, SymbolKind } from "../schema.js";
+
+export interface SymbolRecord {
+  id: string;
+  kind: SymbolKind;
+  name: string;
+  qualifiedName: string;
+  signature: string;
+  doc: string;
+  startOffset: number;
+  startLine: number;
+  endLine: number;
+  ordinal: number;
+}
+
+export interface ImportRecord {
+  toFileId: string;
+  specifier: string;
+  typeOnly: boolean;
+  resolution: Resolution;
+  confidence: number;
+}
+
+export interface FileState {
+  id: string;
+  hash: string;
+  importsDigest: string | null;
+}
 
 export interface RepositoryRecord {
   id: string;
@@ -75,6 +103,97 @@ export class GraphRepository {
       { repoId, path },
     );
     return rows[0]?.hash;
+  }
+
+  async getFileState(repoId: string, path: string): Promise<FileState | undefined> {
+    const rows = await this.client.query<FileState>(
+      `MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(f:File {path: $path})
+       RETURN f.id AS id, f.hash AS hash, f.importsDigest AS importsDigest
+       LIMIT 1`,
+      { repoId, path },
+    );
+    return rows[0];
+  }
+
+  async replaceFileSymbols(
+    repoId: string,
+    file: FileRecord,
+    symbols: readonly SymbolRecord[],
+  ): Promise<void> {
+    const rows = await this.client.query<{ id: string }>(
+      `MATCH (r:Repository {id: $repoId})
+       MERGE (f:File {id: $fileId})
+       SET f.path = $path,
+           f.hash = $hash,
+           f.language = $language,
+           f.lineCount = $lineCount,
+           f.indexedAt = $indexedAt,
+           f.importsDigest = NULL
+       MERGE (r)-[:HAS_FILE]->(f)
+       WITH f
+       OPTIONAL MATCH (f)-[:CONTAINS]->(old:Symbol)
+       WITH f, collect(old) AS olds
+       FOREACH (o IN olds | DETACH DELETE o)
+       FOREACH (s IN $symbols |
+         CREATE (sym:Symbol {
+           id: s.id,
+           kind: s.kind,
+           name: s.name,
+           qualifiedName: s.qualifiedName,
+           signature: s.signature,
+           doc: s.doc,
+           startOffset: s.startOffset,
+           startLine: s.startLine,
+           endLine: s.endLine
+         })
+         CREATE (f)-[:CONTAINS {ordinal: s.ordinal}]->(sym)
+       )
+       RETURN f.id AS id`,
+      {
+        repoId,
+        fileId: file.id,
+        path: file.path,
+        hash: file.hash,
+        language: file.language,
+        lineCount: file.lineCount,
+        indexedAt: file.indexedAt,
+        symbols: symbols.map((symbol) => ({ ...symbol })),
+      },
+    );
+    if (rows.length === 0) {
+      throw new Error(`Repository not found for file: ${file.path}`);
+    }
+  }
+
+  async replaceFileImports(
+    fileIdValue: string,
+    importsDigest: string,
+    unresolved: readonly string[],
+    imports: readonly ImportRecord[],
+  ): Promise<void> {
+    await this.client.query(
+      `MATCH (f:File {id: $fileId})
+       OPTIONAL MATCH (f)-[old:IMPORTS]->(:File)
+       WITH f, collect(old) AS olds
+       FOREACH (o IN olds | DELETE o)
+       SET f.importsDigest = $importsDigest,
+           f.unresolvedImports = $unresolved
+       WITH f
+       UNWIND $imports AS i
+       MATCH (t:File {id: i.toFileId})
+       CREATE (f)-[:IMPORTS {
+         specifier: i.specifier,
+         typeOnly: i.typeOnly,
+         resolution: i.resolution,
+         confidence: i.confidence
+       }]->(t)`,
+      {
+        fileId: fileIdValue,
+        importsDigest,
+        unresolved: [...unresolved],
+        imports: imports.map((entry) => ({ ...entry })),
+      },
+    );
   }
 
   async listFilePaths(repoId: string): Promise<string[]> {
