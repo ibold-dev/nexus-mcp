@@ -12,6 +12,7 @@ export type QueryParams = Record<string, QueryParam>;
 export interface GraphClient {
   query<T>(cypher: string, params?: QueryParams): Promise<T[]>;
   createRangeIndex(label: string, property: string): Promise<void>;
+  createFullTextIndex(label: string, properties: readonly string[]): Promise<void>;
   deleteGraph(): Promise<void>;
   close(): Promise<void>;
 }
@@ -28,6 +29,15 @@ export async function connectGraph(url: string, graphName: string): Promise<Grap
     async createRangeIndex(label: string, property: string): Promise<void> {
       try {
         await graph.createNodeRangeIndex(label, property);
+      } catch (error) {
+        if (!(error instanceof Error) || !/already/i.test(error.message)) {
+          throw error;
+        }
+      }
+    },
+    async createFullTextIndex(label: string, properties: readonly string[]): Promise<void> {
+      try {
+        await graph.createNodeFulltextIndex(label, ...properties);
       } catch (error) {
         if (!(error instanceof Error) || !/already/i.test(error.message)) {
           throw error;

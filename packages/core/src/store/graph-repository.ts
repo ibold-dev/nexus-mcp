@@ -1,5 +1,18 @@
 import type { GraphClient } from "./graph-client.js";
 import type { Resolution, SymbolKind } from "../schema.js";
+import { symbolSearchText, toFullTextQuery } from "./search.js";
+
+export interface SymbolSearchHit {
+  symbolId: string;
+  name: string;
+  qualifiedName: string;
+  kind: SymbolKind;
+  path: string;
+  startLine: number;
+  endLine: number;
+  signature: string;
+  score: number;
+}
 
 export interface SymbolRecord {
   id: string;
@@ -52,6 +65,31 @@ export class GraphRepository {
     await this.client.createRangeIndex("Repository", "id");
     await this.client.createRangeIndex("File", "id");
     await this.client.createRangeIndex("File", "path");
+    await this.client.createFullTextIndex("Symbol", ["name", "searchText", "signature", "doc"]);
+  }
+
+  async searchSymbols(repoId: string, query: string, limit: number): Promise<SymbolSearchHit[]> {
+    const fullText = toFullTextQuery(query);
+    if (fullText === undefined) {
+      return [];
+    }
+    return this.client.query<SymbolSearchHit>(
+      `CALL db.idx.fulltext.queryNodes('Symbol', $query) YIELD node, score
+       MATCH (f:File)-[:CONTAINS]->(node)
+       MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(f)
+       RETURN node.id AS symbolId,
+              node.name AS name,
+              node.qualifiedName AS qualifiedName,
+              node.kind AS kind,
+              f.path AS path,
+              node.startLine AS startLine,
+              node.endLine AS endLine,
+              node.signature AS signature,
+              score
+       ORDER BY score DESC, qualifiedName ASC
+       LIMIT $limit`,
+      { repoId, query: fullText, limit },
+    );
   }
 
   async upsertRepository(record: RepositoryRecord): Promise<void> {
@@ -139,6 +177,7 @@ export class GraphRepository {
            id: s.id,
            kind: s.kind,
            name: s.name,
+           searchText: s.searchText,
            qualifiedName: s.qualifiedName,
            signature: s.signature,
            doc: s.doc,
@@ -157,7 +196,10 @@ export class GraphRepository {
         language: file.language,
         lineCount: file.lineCount,
         indexedAt: file.indexedAt,
-        symbols: symbols.map((symbol) => ({ ...symbol })),
+        symbols: symbols.map((symbol) => ({
+          ...symbol,
+          searchText: symbolSearchText(symbol.name),
+        })),
       },
     );
     if (rows.length === 0) {
