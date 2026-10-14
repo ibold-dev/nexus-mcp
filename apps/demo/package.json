@@ -1,0 +1,13 @@
+{
+  "name": "@nexus/demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "index": "node src/index-repo.ts"
+  },
+  "dependencies": {
+    "@nexus/core": "workspace:*",
+    "@nexus/indexer": "workspace:*"
+  }
+}
