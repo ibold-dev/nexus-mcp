@@ -6,5 +6,6 @@
     "declarationMap": false,
     "noEmit": true
   },
-  "include": ["vitest.config.ts"]
+  "include": ["vitest.config.ts"],
+  "references": [{ "path": "packages/core" }]
 }
