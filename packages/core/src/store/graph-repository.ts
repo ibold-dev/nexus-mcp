@@ -74,6 +74,7 @@ export class GraphRepository {
     await this.client.createRangeIndex("Repository", "id");
     await this.client.createRangeIndex("File", "id");
     await this.client.createRangeIndex("File", "path");
+    await this.client.createRangeIndex("Symbol", "id");
     await this.client.createFullTextIndex("Symbol", ["name", "searchText", "signature", "doc"]);
   }
 
@@ -160,6 +161,27 @@ export class GraphRepository {
       { repoId, path },
     );
     return rows[0];
+  }
+
+  async listFileStates(repoId: string): Promise<Map<string, FileState>> {
+    const rows = await this.client.query<FileState & { path: string }>(
+      `MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(f:File)
+       RETURN f.path AS path, f.id AS id, f.hash AS hash,
+              f.importsDigest AS importsDigest, f.callsDigest AS callsDigest`,
+      { repoId },
+    );
+    return new Map(rows.map((row) => [row.path, { id: row.id, hash: row.hash, importsDigest: row.importsDigest, callsDigest: row.callsDigest }]));
+  }
+
+  async removeFile(repoId: string, path: string): Promise<void> {
+    await this.client.query(
+      `MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(f:File {path: $path})
+       OPTIONAL MATCH (f)-[:CONTAINS]->(s:Symbol)
+       DETACH DELETE s
+       WITH f
+       DETACH DELETE f`,
+      { repoId, path },
+    );
   }
 
   async replaceFileSymbols(

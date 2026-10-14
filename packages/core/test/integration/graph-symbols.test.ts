@@ -212,3 +212,61 @@ describe("GraphRepository symbols and imports against FalkorDB", () => {
     expect((await repository.getFileState(repoId, file.path))?.callsDigest).toBeNull();
   });
 });
+
+describe("GraphRepository file state reads and removal against FalkorDB", () => {
+  let client: GraphClient;
+  let repository: GraphRepository;
+  const graphName = `nexus_test_${randomUUID()}`;
+
+  beforeAll(async () => {
+    client = await connectGraph(FALKORDB_URL, graphName);
+    repository = new GraphRepository(client);
+    await repository.ensureIndexes();
+  });
+
+  afterAll(async () => {
+    await client.deleteGraph().catch(() => undefined);
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await client.query("MATCH (n) DETACH DELETE n");
+    await repository.upsertRepository({ id: repoId, root: "/work/app", schemaVersion: 1, indexedRevision: null });
+    await repository.replaceFileSymbols(repoId, file, [symbol("a1", 0, { qualifiedName: "run" })]);
+    await repository.replaceFileSymbols(repoId, { ...file, id: "file-b", path: "src/b.ts" }, [
+      symbol("b1", 0, { qualifiedName: "helper" }),
+    ]);
+    await repository.replaceFileCalls(file.id, "calls-1", [
+      { fromSymbolId: "a1", toSymbolId: "b1", line: 2, resolution: "resolved", confidence: 1 },
+    ]);
+  });
+
+  it("lists the state of every file in a repository keyed by path", async () => {
+    const states = await repository.listFileStates(repoId);
+    expect([...states.keys()].sort()).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(states.get("src/a.ts")).toEqual({
+      id: file.id,
+      hash: file.hash,
+      importsDigest: null,
+      callsDigest: "calls-1",
+    });
+  });
+
+  it("removes a file with its symbols, its outgoing and incoming call edges, and its import edges", async () => {
+    await repository.replaceFileImports("file-a", "imp-1", [], [
+      { toFileId: "file-b", specifier: "./b", typeOnly: false, resolution: "resolved", confidence: 1 },
+    ]);
+
+    await repository.removeFile(repoId, "src/b.ts");
+
+    expect(await repository.listFilePaths(repoId)).toEqual(["src/a.ts"]);
+    expect(await client.query("MATCH (s:Symbol {id: 'b1'}) RETURN s")).toEqual([]);
+    expect(await client.query("MATCH ()-[c:POSSIBLY_CALLS]->() RETURN c")).toEqual([]);
+    expect(await client.query("MATCH ()-[i:IMPORTS]->() RETURN i")).toEqual([]);
+  });
+
+  it("removing an unknown file is a no-op", async () => {
+    await repository.removeFile(repoId, "src/none.ts");
+    expect(await repository.listFilePaths(repoId)).toEqual(["src/a.ts", "src/b.ts"]);
+  });
+});
