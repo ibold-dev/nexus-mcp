@@ -35,6 +35,9 @@ importers:
       '@nexus/indexer':
         specifier: workspace:*
         version: link:../../packages/indexer
+      '@nexus/parser-ts':
+        specifier: workspace:*
+        version: link:../../packages/parser-ts
 
   packages/core:
     dependencies:
