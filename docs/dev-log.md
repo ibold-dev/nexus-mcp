@@ -20,3 +20,13 @@ Dated record of build work. AI assistance (Claude via OpenCode) was used through
 - Full-text search uses OR between terms, ranked by score, instead of RediSearch's default AND.
 - Symbol IDs drop the source offset (see the ID commit message).
 - Call edges come from a repository-wide type-checker pass. Member calls on untyped receivers get a heuristic edge only when the method name is unique in the repository.
+
+## 2026-10-15 (later)
+
+- Sync speed: the analyzer now keeps one type-checker project alive across syncs. Only changed files are re-parsed, and calls are recomputed only where a change can affect them. Imports resolve through TypeScript's module resolver over the repository's own file list, which avoids building a program.
+- Sync fast path: a sync that finds nothing changed against the graph returns without analysis (about 0.26s on zod).
+- Index fix: call-edge writes look up symbols by id, so `Symbol.id` now has a range index. Without it, each lookup scanned every symbol.
+- Deletions: files removed from disk are removed from the graph with their symbols and edges, and their dependents are rewritten.
+- Repo lock: `.nexus/sync.lock` holds the owning PID. A live owner blocks the sync; a stale lock is replaced.
+- Measured on zod (522 files): cold sync 39s, no-op 0.26s, warm single-file edit 4.5s.
+- Known limits: the warm edit cost is mostly TypeScript rebuilding its program. Analysis is repository-wide, so one file that throws would abort the sync; per-file isolation is not in place yet. A few `.mjs` files in zod produce unresolved calls, which are reported as failures, not silently dropped.
