@@ -115,6 +115,26 @@ describe("extractFile contains edges and identity", () => {
     expect(new Set(first.symbols.map((s) => s.id)).size).toBe(first.symbols.length);
   });
 
+  it("keeps a symbol's id when lines are added above it", () => {
+    const before = extract("export function target() {}\n");
+    const after = extract("// new comment\nconst added = 1;\n\nexport function target() {}\n");
+
+    const idBefore = before.symbols.find((s) => s.qualifiedName === "target")?.id;
+    const idAfter = after.symbols.find((s) => s.qualifiedName === "target")?.id;
+    expect(idBefore).toBeDefined();
+    expect(idAfter).toBe(idBefore);
+  });
+
+  it("gives overloads of the same name distinct, stable ids in document order", () => {
+    const content = "export function f(a: string): void;\nexport function f(a: unknown) {}\n";
+    const result = extract(content);
+    const overloads = result.symbols.filter((s) => s.qualifiedName === "f");
+
+    expect(overloads).toHaveLength(2);
+    expect(overloads[0]?.id).not.toBe(overloads[1]?.id);
+    expect(extract(content).symbols.map((s) => s.id)).toEqual(result.symbols.map((s) => s.id));
+  });
+
   it("normalizes path spellings to the same file id", () => {
     expect(extract("export const x = 1;", "src\\sample.ts").fileId).toBe(
       extract("export const x = 1;", "./src/sample.ts").fileId,

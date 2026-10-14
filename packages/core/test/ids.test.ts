@@ -54,18 +54,19 @@ describe("fileId", () => {
 describe("symbolId", () => {
   const file = fileId("repo", "src/a.ts");
 
-  it("changes when the start offset changes", () => {
-    expect(symbolId(file, "function", "run", 10)).not.toBe(symbolId(file, "function", "run", 11));
+  it("does not depend on position, so edits above a symbol keep its id", () => {
+    expect(symbolId(file, "function", "run", 0)).toBe(symbolId(file, "function", "run", 0));
   });
 
-  it("changes when kind or qualified name changes", () => {
+  it("changes when kind, qualified name, or occurrence changes", () => {
     expect(symbolId(file, "function", "run", 0)).not.toBe(symbolId(file, "method", "run", 0));
     expect(symbolId(file, "method", "A.run", 0)).not.toBe(symbolId(file, "method", "B.run", 0));
+    expect(symbolId(file, "function", "run", 0)).not.toBe(symbolId(file, "function", "run", 1));
   });
 
-  it("rejects invalid offsets", () => {
-    expect(() => symbolId(file, "function", "run", -1)).toThrow(/Invalid start offset/);
-    expect(() => symbolId(file, "function", "run", 1.5)).toThrow(/Invalid start offset/);
+  it("rejects invalid occurrences", () => {
+    expect(() => symbolId(file, "function", "run", -1)).toThrow(/Invalid occurrence/);
+    expect(() => symbolId(file, "function", "run", 1.5)).toThrow(/Invalid occurrence/);
   });
 
   it("does not collide when parts shift across the separator", () => {

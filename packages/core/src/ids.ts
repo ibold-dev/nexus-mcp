@@ -33,12 +33,12 @@ export function symbolId(
   fileIdValue: string,
   kind: string,
   qualifiedName: string,
-  startOffset: number,
+  occurrence: number,
 ): string {
-  if (!Number.isInteger(startOffset) || startOffset < 0) {
-    throw new Error(`Invalid start offset: ${startOffset}`);
+  if (!Number.isInteger(occurrence) || occurrence < 0) {
+    throw new Error(`Invalid occurrence: ${occurrence}`);
   }
-  return sha256(["symbol", fileIdValue, kind, qualifiedName, String(startOffset)]);
+  return sha256(["symbol", fileIdValue, kind, qualifiedName, String(occurrence)]);
 }
 
 export function contentHash(content: string): string {

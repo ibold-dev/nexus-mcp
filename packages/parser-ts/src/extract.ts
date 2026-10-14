@@ -1,4 +1,4 @@
-import { Node, Project } from "ts-morph";
+import { Node, Project, type SourceFile } from "ts-morph";
 import { fileId, normalizeRelativePath, symbolId, type SymbolKind } from "@nexus/core";
 
 export interface ExtractedSymbol {
@@ -32,6 +32,19 @@ export interface ExtractInput {
   repoId: string;
   relativePath: string;
   content: string;
+}
+
+export interface SymbolDraft {
+  kind: SymbolKind;
+  name: string;
+  qualifiedName: string;
+  signature: string;
+  doc: string;
+  startOffset: number;
+  startLine: number;
+  endLine: number;
+  occurrence: number;
+  node: Node;
 }
 
 const MAX_SIGNATURE_LENGTH = 200;
@@ -104,18 +117,7 @@ function docOf(node: Node | undefined): string {
     .join("\n\n");
 }
 
-interface Draft {
-  kind: SymbolKind;
-  name: string;
-  qualifiedName: string;
-  signature: string;
-  doc: string;
-  startOffset: number;
-  startLine: number;
-  endLine: number;
-}
-
-function visit(node: Node, scope: readonly string[], out: Draft[]): void {
+function visit(node: Node, scope: readonly string[], out: SymbolDraft[]): void {
   const declaration = describe(node);
   if (!declaration) {
     node.forEachChild((child) => visit(child, scope, out));
@@ -123,17 +125,27 @@ function visit(node: Node, scope: readonly string[], out: Draft[]): void {
   }
 
   const childScope = [...scope, declaration.name];
+  const qualifiedName = childScope.join(".");
+  const occurrence = out.filter((draft) => draft.kind === declaration.kind && draft.qualifiedName === qualifiedName).length;
   out.push({
     kind: declaration.kind,
     name: declaration.name,
-    qualifiedName: childScope.join("."),
+    qualifiedName,
     signature: signatureOf(node),
     doc: docOf(declaration.docSource),
     startOffset: node.getStart(),
     startLine: node.getStartLineNumber(),
     endLine: node.getEndLineNumber(),
+    occurrence,
+    node,
   });
   node.forEachChild((child) => visit(child, childScope, out));
+}
+
+export function collectSymbolDrafts(sourceFile: SourceFile): SymbolDraft[] {
+  const drafts: SymbolDraft[] = [];
+  sourceFile.forEachChild((child) => visit(child, [], drafts));
+  return drafts;
 }
 
 export function extractFile(input: ExtractInput): ExtractedFile {
@@ -144,11 +156,10 @@ export function extractFile(input: ExtractInput): ExtractedFile {
 
   try {
     const file = fileId(input.repoId, relativePath);
-    const drafts: Draft[] = [];
-    sourceFile.forEachChild((child) => visit(child, [], drafts));
+    const drafts = collectSymbolDrafts(sourceFile);
 
     const symbols: ExtractedSymbol[] = drafts.map((draft, ordinal) => ({
-      id: symbolId(file, draft.kind, draft.qualifiedName, draft.startOffset),
+      id: symbolId(file, draft.kind, draft.qualifiedName, draft.occurrence),
       kind: draft.kind,
       name: draft.name,
       qualifiedName: draft.qualifiedName,
