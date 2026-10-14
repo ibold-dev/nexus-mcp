@@ -148,6 +148,21 @@ export function collectSymbolDrafts(sourceFile: SourceFile): SymbolDraft[] {
   return drafts;
 }
 
+export function toExtractedSymbols(file: string, drafts: readonly SymbolDraft[]): ExtractedSymbol[] {
+  return drafts.map((draft, ordinal) => ({
+    id: symbolId(file, draft.kind, draft.qualifiedName, draft.occurrence),
+    kind: draft.kind,
+    name: draft.name,
+    qualifiedName: draft.qualifiedName,
+    signature: draft.signature,
+    doc: draft.doc,
+    startOffset: draft.startOffset,
+    startLine: draft.startLine,
+    endLine: draft.endLine,
+    ordinal,
+  }));
+}
+
 export function extractFile(input: ExtractInput): ExtractedFile {
   const relativePath = normalizeRelativePath(input.relativePath);
   const sourceFile = project.createSourceFile(`/${relativePath}`, input.content, {
@@ -156,20 +171,7 @@ export function extractFile(input: ExtractInput): ExtractedFile {
 
   try {
     const file = fileId(input.repoId, relativePath);
-    const drafts = collectSymbolDrafts(sourceFile);
-
-    const symbols: ExtractedSymbol[] = drafts.map((draft, ordinal) => ({
-      id: symbolId(file, draft.kind, draft.qualifiedName, draft.occurrence),
-      kind: draft.kind,
-      name: draft.name,
-      qualifiedName: draft.qualifiedName,
-      signature: draft.signature,
-      doc: draft.doc,
-      startOffset: draft.startOffset,
-      startLine: draft.startLine,
-      endLine: draft.endLine,
-      ordinal,
-    }));
+    const symbols = toExtractedSymbols(file, collectSymbolDrafts(sourceFile));
 
     return {
       fileId: file,
