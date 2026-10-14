@@ -6,11 +6,24 @@
     "declarationMap": false,
     "noEmit": true
   },
-  "include": ["vitest.config.ts"],
+  "include": [
+    "vitest.config.ts"
+  ],
   "references": [
-    { "path": "packages/core" },
-    { "path": "packages/parser-ts" },
-    { "path": "packages/indexer" },
-    { "path": "apps/demo" }
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/parser-ts"
+    },
+    {
+      "path": "packages/indexer"
+    },
+    {
+      "path": "packages/mcp"
+    },
+    {
+      "path": "apps/demo"
+    }
   ]
 }
