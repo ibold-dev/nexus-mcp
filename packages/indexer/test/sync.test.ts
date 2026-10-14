@@ -289,6 +289,20 @@ describe("syncRepository incremental behavior", () => {
     expect(await snapshot(client)).toEqual(await snapshot(cold));
   });
 
+  it("bumps graphVersion on writes and keeps it on no-op syncs", async () => {
+    const first = await syncRepository({ client, root, projectSalt: salt });
+    expect(first.graphVersion).toBe(1);
+    expect(first.indexedAt).not.toBeNull();
+
+    const noop = await syncRepository({ client, root, projectSalt: salt });
+    expect(noop.graphVersion).toBe(1);
+    expect(noop.indexedAt).toBe(first.indexedAt);
+
+    await write(root, "src/b.ts", `export function b() { return 2; }\n`);
+    const edited = await syncRepository({ client, root, projectSalt: salt });
+    expect(edited.graphVersion).toBe(2);
+  });
+
   it("refuses to run while another sync holds the lock", async () => {
     await withRepositoryLock(root, async () => {
       await expect(syncRepository({ client, root, projectSalt: salt })).rejects.toBeInstanceOf(

@@ -40,6 +40,8 @@ export interface SyncResult {
   recomputedCalls: number;
   changedPaths: string[];
   failures: ScanFailure[];
+  graphVersion: number;
+  indexedAt: string | null;
 }
 
 const JAVASCRIPT_EXTENSIONS: ReadonlySet<string> = new Set([".js", ".jsx", ".mjs", ".cjs"]);
@@ -113,6 +115,7 @@ async function runSync(options: SyncOptions, root: string, repoId: string): Prom
   const removedPaths = [...stored.keys()].filter((relativePath) => !onDisk.has(relativePath)).sort();
 
   if (changedOnDisk.size === 0 && removedPaths.length === 0) {
+    const state = await repository.getRepositoryState(repoId);
     return {
       repoId,
       scanned: sources.length,
@@ -124,6 +127,8 @@ async function runSync(options: SyncOptions, root: string, repoId: string): Prom
       recomputedCalls: 0,
       changedPaths: [],
       failures,
+      graphVersion: state.graphVersion,
+      indexedAt: state.indexedAt,
     };
   }
 
@@ -206,6 +211,11 @@ async function runSync(options: SyncOptions, root: string, repoId: string): Prom
     }
   }
 
+  const wrote = removedPaths.length + changedFileIds.size + importsWritten + callsWritten > 0;
+  const graphVersion = wrote
+    ? await repository.bumpGraphVersion(repoId, indexedAt)
+    : (await repository.getRepositoryState(repoId)).graphVersion;
+
   return {
     repoId,
     scanned: sources.length,
@@ -217,5 +227,7 @@ async function runSync(options: SyncOptions, root: string, repoId: string): Prom
     recomputedCalls: update.recomputedCalls.length,
     changedPaths: [...changedOnDisk].sort(),
     failures,
+    graphVersion,
+    indexedAt: wrote ? indexedAt : (await repository.getRepositoryState(repoId)).indexedAt,
   };
 }

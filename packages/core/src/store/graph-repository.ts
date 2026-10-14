@@ -43,6 +43,11 @@ export interface CallRecord {
   confidence: number;
 }
 
+export interface RepositoryState {
+  graphVersion: number;
+  indexedAt: string | null;
+}
+
 export interface FileState {
   id: string;
   hash: string;
@@ -161,6 +166,26 @@ export class GraphRepository {
       { repoId, path },
     );
     return rows[0];
+  }
+
+  async bumpGraphVersion(repoId: string, indexedAt: string): Promise<number> {
+    const rows = await this.client.query<{ version: number }>(
+      `MATCH (r:Repository {id: $repoId})
+       SET r.graphVersion = coalesce(r.graphVersion, 0) + 1,
+           r.indexedAt = $indexedAt
+       RETURN r.graphVersion AS version`,
+      { repoId, indexedAt },
+    );
+    return rows[0]?.version ?? 0;
+  }
+
+  async getRepositoryState(repoId: string): Promise<RepositoryState> {
+    const rows = await this.client.query<{ graphVersion: number; indexedAt: string | null }>(
+      `MATCH (r:Repository {id: $repoId})
+       RETURN coalesce(r.graphVersion, 0) AS graphVersion, r.indexedAt AS indexedAt`,
+      { repoId },
+    );
+    return rows[0] ?? { graphVersion: 0, indexedAt: null };
   }
 
   async listFileStates(repoId: string): Promise<Map<string, FileState>> {
