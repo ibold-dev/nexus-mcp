@@ -76,7 +76,43 @@ describe("fullScan against FalkorDB", () => {
 
     expect(second.filesWritten).toBe(0);
     expect(second.importsWritten).toBe(0);
+    expect(second.callsWritten).toBe(0);
+    expect(second.changedPaths).toEqual([]);
     expect(second.unchanged).toBe(4);
+  });
+
+  const callsFromA = `
+    MATCH (:File {path: 'src/a.ts'})-[:CONTAINS]->(:Symbol {qualifiedName: 'a'})-[c:POSSIBLY_CALLS]->(t:Symbol)
+    RETURN t.qualifiedName AS target, c.resolution AS resolution, c.line AS line`;
+
+  it("writes resolved call edges across files", async () => {
+    await fullScan({ client, root, projectSalt: salt });
+
+    const calls = await client.query<{ target: string; resolution: string; line: number }>(callsFromA);
+    expect(calls).toEqual([{ target: "b", resolution: "resolved", line: 2 }]);
+  });
+
+  it("keeps the call edge after a line is added above the callee, because its id is stable", async () => {
+    await fullScan({ client, root, projectSalt: salt });
+    await write(root, "src/b.ts", `// a comment\n\nexport function b() { return 1; }\n`);
+
+    const result = await fullScan({ client, root, projectSalt: salt });
+
+    expect(result.changedPaths).toEqual(["src/b.ts"]);
+    expect(result.callsWritten).toBe(2);
+    const calls = await client.query<{ target: string }>(callsFromA);
+    expect(calls.map((row) => row.target)).toEqual(["b"]);
+  });
+
+  it("removes the call edge when the callee is renamed and the caller is unchanged", async () => {
+    await fullScan({ client, root, projectSalt: salt });
+    await write(root, "src/b.ts", `export function renamed() { return 1; }\n`);
+
+    const result = await fullScan({ client, root, projectSalt: salt });
+
+    expect(result.changedPaths).toEqual(["src/b.ts"]);
+    expect(result.callsWritten).toBe(2);
+    expect(await client.query(callsFromA)).toEqual([]);
   });
 
   it("re-parses only the changed file and replaces its symbols", async () => {

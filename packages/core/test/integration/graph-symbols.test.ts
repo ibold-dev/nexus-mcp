@@ -178,7 +178,37 @@ describe("GraphRepository symbols and imports against FalkorDB", () => {
       id: file.id,
       hash: file.hash,
       importsDigest: null,
+      callsDigest: null,
     });
     expect(await repository.getFileState(repoId, "src/none.ts")).toBeUndefined();
+  });
+
+  it("replaces POSSIBLY_CALLS edges of a file and drops edges to missing targets", async () => {
+    await repository.replaceFileSymbols(repoId, file, [symbol("a1", 0, { qualifiedName: "run" })]);
+    await repository.replaceFileSymbols(repoId, { ...file, id: "file-b", path: "src/b.ts" }, [
+      symbol("b1", 0, { qualifiedName: "helper" }),
+    ]);
+
+    await repository.replaceFileCalls(file.id, "calls-1", [
+      { fromSymbolId: "a1", toSymbolId: "b1", line: 3, resolution: "resolved", confidence: 1 },
+      { fromSymbolId: "a1", toSymbolId: "missing", line: 4, resolution: "resolved", confidence: 1 },
+    ]);
+    await repository.replaceFileCalls(file.id, "calls-2", [
+      { fromSymbolId: "a1", toSymbolId: "b1", line: 7, resolution: "heuristic", confidence: 0.5 },
+    ]);
+
+    const edges = await client.query<{ line: number; resolution: string; confidence: number }>(
+      `MATCH (:Symbol {id: 'a1'})-[c:POSSIBLY_CALLS]->(:Symbol {id: 'b1'})
+       RETURN c.line AS line, c.resolution AS resolution, c.confidence AS confidence`,
+    );
+    expect(edges).toEqual([{ line: 7, resolution: "heuristic", confidence: 0.5 }]);
+    expect((await repository.getFileState(repoId, file.path))?.callsDigest).toBe("calls-2");
+  });
+
+  it("clears callsDigest when symbols are rewritten so calls are recomputed", async () => {
+    await repository.replaceFileSymbols(repoId, file, []);
+    await repository.replaceFileCalls(file.id, "calls-1", []);
+    await repository.replaceFileSymbols(repoId, file, []);
+    expect((await repository.getFileState(repoId, file.path))?.callsDigest).toBeNull();
   });
 });

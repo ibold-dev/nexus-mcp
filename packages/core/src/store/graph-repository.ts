@@ -35,10 +35,19 @@ export interface ImportRecord {
   confidence: number;
 }
 
+export interface CallRecord {
+  fromSymbolId: string;
+  toSymbolId: string;
+  line: number;
+  resolution: Resolution;
+  confidence: number;
+}
+
 export interface FileState {
   id: string;
   hash: string;
   importsDigest: string | null;
+  callsDigest: string | null;
 }
 
 export interface RepositoryRecord {
@@ -146,7 +155,7 @@ export class GraphRepository {
   async getFileState(repoId: string, path: string): Promise<FileState | undefined> {
     const rows = await this.client.query<FileState>(
       `MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(f:File {path: $path})
-       RETURN f.id AS id, f.hash AS hash, f.importsDigest AS importsDigest
+       RETURN f.id AS id, f.hash AS hash, f.importsDigest AS importsDigest, f.callsDigest AS callsDigest
        LIMIT 1`,
       { repoId, path },
     );
@@ -166,7 +175,8 @@ export class GraphRepository {
            f.language = $language,
            f.lineCount = $lineCount,
            f.indexedAt = $indexedAt,
-           f.importsDigest = NULL
+           f.importsDigest = NULL,
+           f.callsDigest = NULL
        MERGE (r)-[:HAS_FILE]->(f)
        WITH f
        OPTIONAL MATCH (f)-[:CONTAINS]->(old:Symbol)
@@ -205,6 +215,34 @@ export class GraphRepository {
     if (rows.length === 0) {
       throw new Error(`Repository not found for file: ${file.path}`);
     }
+  }
+
+  async replaceFileCalls(
+    fileIdValue: string,
+    callsDigest: string,
+    calls: readonly CallRecord[],
+  ): Promise<void> {
+    await this.client.query(
+      `MATCH (f:File {id: $fileId})
+       OPTIONAL MATCH (f)-[:CONTAINS]->(:Symbol)-[old:POSSIBLY_CALLS]->(:Symbol)
+       WITH f, collect(old) AS olds
+       FOREACH (o IN olds | DELETE o)
+       SET f.callsDigest = $callsDigest
+       WITH f
+       UNWIND $calls AS c
+       MATCH (from:Symbol {id: c.fromSymbolId})
+       MATCH (to:Symbol {id: c.toSymbolId})
+       CREATE (from)-[:POSSIBLY_CALLS {
+         line: c.line,
+         resolution: c.resolution,
+         confidence: c.confidence
+       }]->(to)`,
+      {
+        fileId: fileIdValue,
+        callsDigest,
+        calls: calls.map((call) => ({ ...call })),
+      },
+    );
   }
 
   async replaceFileImports(
