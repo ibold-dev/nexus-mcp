@@ -14,7 +14,7 @@ const indexedAt = "2026-10-15T00:00:00.000Z";
 const repoId = "repo-context";
 const otherRepo = "repo-context-other";
 
-function symbol(id: string, name: string, path: string): SymbolRecord {
+function symbol(id: string, name: string): SymbolRecord {
   return {
     id,
     kind: "function",
@@ -60,11 +60,11 @@ describe("symbol context queries against FalkorDB", () => {
       indexedAt,
     });
 
-    await repository.replaceFileSymbols(repoId, file("f-a", "src/a.ts"), [symbol("a-run", "run", "src/a.ts")]);
-    await repository.replaceFileSymbols(repoId, file("f-b", "src/b.ts"), [symbol("b-helper", "helper", "src/b.ts")]);
-    await repository.replaceFileSymbols(repoId, file("f-c", "src/c.ts"), [symbol("c-deep", "deep", "src/c.ts")]);
-    await repository.replaceFileSymbols(repoId, file("f-x", "src/x.ts"), [symbol("x-caller", "caller", "src/x.ts")]);
-    await repository.replaceFileSymbols(repoId, file("f-o", "other/o.ts", otherRepo), [symbol("o-run", "run", "other/o.ts")]);
+    await repository.replaceFileSymbols(repoId, file("f-a", "src/a.ts"), [symbol("a-run", "run")]);
+    await repository.replaceFileSymbols(repoId, file("f-b", "src/b.ts"), [symbol("b-helper", "helper")]);
+    await repository.replaceFileSymbols(repoId, file("f-c", "src/c.ts"), [symbol("c-deep", "deep")]);
+    await repository.replaceFileSymbols(repoId, file("f-x", "src/x.ts"), [symbol("x-caller", "caller")]);
+    await repository.replaceFileSymbols(repoId, file("f-o", "other/o.ts", otherRepo), [symbol("o-run", "run")]);
 
     await repository.replaceFileCalls("f-a", "d1", [
       { fromSymbolId: "a-run", toSymbolId: "b-helper", line: 2, resolution: "resolved", confidence: 1 },
