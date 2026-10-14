@@ -1,2 +1,3 @@
 export * from "./walk.js";
-export * from "./full-scan.js";
+export * from "./sync.js";
+export * from "./lock.js";

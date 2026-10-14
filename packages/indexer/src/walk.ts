@@ -15,6 +15,7 @@ export const SOURCE_EXTENSIONS: ReadonlySet<string> = new Set([
 
 const DEFAULT_IGNORED_DIRECTORIES = [
   ".git",
+  ".nexus",
   "node_modules",
   "dist",
   "build",

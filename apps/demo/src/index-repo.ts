@@ -1,5 +1,5 @@
 import { connectGraph } from "@nexus/core";
-import { fullScan } from "@nexus/indexer";
+import { syncRepository } from "@nexus/indexer";
 
 const root = process.argv[2];
 if (!root) {
@@ -14,7 +14,7 @@ const projectSalt = process.env.NEXUS_SALT ?? "demo";
 const client = await connectGraph(url, graphName);
 try {
   const started = performance.now();
-  const result = await fullScan({ client, root, projectSalt });
+  const result = await syncRepository({ client, root, projectSalt });
   const durationMs = Math.round(performance.now() - started);
   console.log(JSON.stringify({ graph: graphName, durationMs, ...result, failures: result.failures.length }, null, 2));
   if (result.failures.length > 0) {
