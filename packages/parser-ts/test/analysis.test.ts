@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { analyzeRepository, type FileAnalysis, type SourceInput } from "../src/index.js";
+import { contentHash } from "@nexus/core";
+import { analyzeRepository, RepositoryAnalyzer, type FileAnalysis, type SourceInput } from "../src/index.js";
 
 const repoId = "repo-calls";
 
@@ -157,5 +158,87 @@ describe("analyzeRepository call edges", () => {
     expect(a.imports.edges).toHaveLength(1);
     expect(a.calls).toHaveLength(1);
     expect(fileNamed(results, "src/b.ts").calls).toEqual([]);
+  });
+});
+
+describe("RepositoryAnalyzer incremental updates", () => {
+  function sourceUpdate(relativePath: string, content: string) {
+    return { relativePath, content, hash: contentHash(content) };
+  }
+
+  function summarize(analyses: FileAnalysis[]): unknown {
+    return analyses.map((file) => ({
+      path: file.relativePath,
+      symbols: file.symbols.map((s) => [s.id, s.qualifiedName]),
+      imports: file.imports.edges.map((e) => [e.toFileId, e.specifier, e.typeOnly]).sort(),
+      unresolved: file.imports.unresolved,
+      calls: file.calls.map((c) => JSON.stringify([c.fromSymbolId, c.toSymbolId, c.line, c.resolution, c.confidence])).sort(),
+      callErrors: file.callErrors,
+    }));
+  }
+
+  const initial: SourceInput[] = [
+    { relativePath: "src/a.ts", content: `import { b } from "./b";\nimport { d } from "./d";\nexport function run() { return b() + d(); }\n` },
+    { relativePath: "src/b.ts", content: `export function b() { return helper(); }\nfunction helper() { return 1; }\n` },
+    { relativePath: "src/c.ts", content: `export function c(o: any) { return o.process(); }\n` },
+  ];
+
+  it("matches a fresh analysis after edits, additions, renames, and deletions", () => {
+    const analyzer = new RepositoryAnalyzer(repoId);
+    const steps: SourceInput[][] = [
+      initial,
+      [
+        initial[0] as SourceInput,
+        { relativePath: "src/b.ts", content: `// moved\n\nexport function b() { return helper2(); }\nfunction helper2() { return 1; }\n` },
+        initial[2] as SourceInput,
+      ],
+      [
+        initial[0] as SourceInput,
+        { relativePath: "src/b.ts", content: `// moved\n\nexport function b() { return helper2(); }\nfunction helper2() { return 1; }\n` },
+        { relativePath: "src/d.ts", content: `export function d() { return 2; }\n` },
+        initial[2] as SourceInput,
+      ],
+      [
+        initial[0] as SourceInput,
+        { relativePath: "src/d.ts", content: `export function d() { return 2; }\n` },
+        initial[2] as SourceInput,
+      ],
+      [
+        { relativePath: "src/a.ts", content: `import { d } from "./d";\nexport function run() { return d(); }\n` },
+        { relativePath: "src/d.ts", content: `export function d() { return 3; }\n` },
+        initial[2] as SourceInput,
+      ],
+    ];
+
+    for (const step of steps) {
+      const incremental = analyzer.update(step.map((s) => sourceUpdate(s.relativePath, s.content)));
+      const fresh = analyzeRepository(repoId, step);
+      expect(summarize(incremental.analyses)).toEqual(summarize(fresh));
+    }
+  });
+
+  it("reports nothing to do when no content changed", () => {
+    const analyzer = new RepositoryAnalyzer(repoId);
+    const updates = initial.map((s) => sourceUpdate(s.relativePath, s.content));
+    analyzer.update(updates);
+
+    const again = analyzer.update(updates);
+    expect(again.addedOrChanged).toEqual([]);
+    expect(again.removed).toEqual([]);
+    expect(again.recomputedCalls).toEqual([]);
+  });
+
+  it("recomputes calls only for files affected by a change", () => {
+    const analyzer = new RepositoryAnalyzer(repoId);
+    analyzer.update(initial.map((s) => sourceUpdate(s.relativePath, s.content)));
+
+    const result = analyzer.update([
+      sourceUpdate("src/b.ts", `// touched\n${initial[1]?.content ?? ""}`),
+      sourceUpdate("src/a.ts", initial[0]?.content ?? ""),
+      sourceUpdate("src/c.ts", initial[2]?.content ?? ""),
+    ]);
+
+    expect(result.addedOrChanged).toEqual(["src/b.ts"]);
+    expect(result.recomputedCalls).toEqual(["src/a.ts", "src/b.ts"]);
   });
 });

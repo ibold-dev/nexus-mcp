@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Project, ts, type SourceFile } from "ts-morph";
 import { fileId, normalizeRelativePath, RESOLUTIONS } from "@nexus/core";
 
@@ -22,6 +23,9 @@ export interface FileImports {
   unresolved: string[];
 }
 
+/** Resolves a module specifier to an absolute path of a file inside the repository, or undefined. */
+export type ModuleResolver = (specifier: string, fromAbsolutePath: string) => string | undefined;
+
 export const REPOSITORY_COMPILER_OPTIONS: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.ESNext,
@@ -37,10 +41,40 @@ export function createRepositoryProject(): Project {
   });
 }
 
+/**
+ * Module resolution over the repository's own files only. It does not build a
+ * type-checker program, so it stays cheap when files change.
+ */
+export function createModuleResolver(absolutePaths: Iterable<string>): ModuleResolver {
+  const files = new Set(absolutePaths);
+  const directories = new Set<string>();
+  for (const file of files) {
+    let directory = path.posix.dirname(file);
+    while (directory !== "/" && !directories.has(directory)) {
+      directories.add(directory);
+      directory = path.posix.dirname(directory);
+    }
+  }
+
+  const host: ts.ModuleResolutionHost = {
+    fileExists: (candidate) => files.has(candidate),
+    directoryExists: (candidate) => directories.has(candidate),
+    readFile: () => undefined,
+    realpath: (candidate) => candidate,
+  };
+
+  return (specifier, fromAbsolutePath) => {
+    const resolved = ts.resolveModuleName(specifier, fromAbsolutePath, REPOSITORY_COMPILER_OPTIONS, host)
+      .resolvedModule?.resolvedFileName;
+    return resolved !== undefined && files.has(resolved) ? resolved : undefined;
+  };
+}
+
 export function collectFileImports(
   file: SourceFile,
   repoId: string,
   relativePath: string,
+  resolve: ModuleResolver,
   relativeByAbsolute: ReadonlyMap<string, string>,
 ): { edges: ImportEdge[]; unresolved: string[] } {
   const fromFileId = fileId(repoId, relativePath);
@@ -55,8 +89,8 @@ export function collectFileImports(
       continue;
     }
     const typeOnly = declaration.isTypeOnly();
-    const target = declaration.getModuleSpecifierSourceFile();
-    const targetRelative = target ? relativeByAbsolute.get(target.getFilePath()) : undefined;
+    const target = resolve(specifier, file.getFilePath());
+    const targetRelative = target !== undefined ? relativeByAbsolute.get(target) : undefined;
 
     if (targetRelative === undefined) {
       unresolved.add(specifier);
@@ -91,9 +125,10 @@ export function extractImports(repoId: string, sources: readonly SourceInput[]):
     relativeByAbsolute.set(absolutePath, relativePath);
     return { relativePath, file: project.createSourceFile(absolutePath, source.content, { overwrite: true }) };
   });
+  const resolve = createModuleResolver(relativeByAbsolute.keys());
 
   return sourceFiles.map(({ relativePath, file }) => {
-    const { edges, unresolved } = collectFileImports(file, repoId, relativePath, relativeByAbsolute);
+    const { edges, unresolved } = collectFileImports(file, repoId, relativePath, resolve, relativeByAbsolute);
     return { fileId: fileId(repoId, relativePath), relativePath, edges, unresolved };
   });
 }
