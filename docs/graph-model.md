@@ -11,7 +11,7 @@ Edges that come from parsing are drawn solid. Inferred edges carry `resolution` 
 
 ```mermaid
 flowchart LR
-    R["Repository<br/>id, rootPath, graphVersion, indexedAt, schemaVersion"]
+    R["Repository<br/>id, root, schemaVersion, indexedRevision, graphVersion, indexedAt"]
     F["File<br/>id, path, hash, language, lineCount, indexedAt"]
     S["Symbol<br/>id, name, qualifiedName, kind, signature, startLine, endLine, doc"]
 

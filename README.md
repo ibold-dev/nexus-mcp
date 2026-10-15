@@ -337,6 +337,14 @@ Two properties that took work:
 The analyzer is kept warm across syncs, which is where most of the speed comes from —
 but it is not free, and the cost is stated plainly below rather than hidden.
 
+**What gets indexed.** `.gitignore` is respected, along with a default list of build and
+vendor directories (`.git`, `.nexus`, `node_modules`, `dist`, `build`, `coverage`,
+`vendor`, `out`, `.next`, `.turbo`), and `.env`-shaped files and key material are skipped
+outright so that secrets cannot reach the graph. Anything else is added to `.nexusignore`
+in the repository root. Hidden directories are **not** excluded wholesale: `.claude/` or
+`.github/` often hold real scripts, and excluding them by default would silently hide code
+from the impact analysis rather than from the graph alone.
+
 ---
 
 ## What it costs, and what it removes
