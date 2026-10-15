@@ -1,0 +1,13 @@
+.git
+.nexus
+node_modules
+**/node_modules
+**/dist
+*.tsbuildinfo
+bench/results
+docs
+output
+tmp
+.env
+.env.*
+!.env.example

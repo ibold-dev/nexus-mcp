@@ -1,3 +1,11 @@
+# The whole stack: FalkorDB, and the agent pointed at a repository you mount.
+#
+#   docker compose up -d falkordb
+#   NEXUS_REPO=/path/to/your/repo docker compose up agent
+#
+# NEXUS_REPO is mounted read-write because a sync writes one lock file at
+# .nexus/sync.lock to serialise syncs against the same graph. Nothing else in
+# your repository is touched.
 services:
   falkordb:
     image: falkordb/falkordb:latest
@@ -13,6 +21,34 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+
+  agent:
+    build: .
+    image: nexus-mcp
+    container_name: nexus-agent
+    command:
+      - packages/agent/dist/main.js
+      - --symbol
+      - ${NEXUS_SYMBOL:-syncRepository}
+    environment:
+      NEXUS_ROOT: /repo
+      FALKORDB_URL: redis://falkordb:6379
+      NEXUS_GRAPH: ${NEXUS_GRAPH:-nexus-docker}
+      NEXUS_SALT: ${NEXUS_SALT:-docker}
+      NEXUS_USER: ${NEXUS_USER:-local}
+      NEXUS_AGENT: ${NEXUS_AGENT:-docker-agent}
+      # Claude by default; stub runs the whole loop with no key and no network.
+      NEXUS_PROVIDER: ${NEXUS_PROVIDER:-stub}
+      NEXUS_MODEL: ${NEXUS_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+    volumes:
+      - ${NEXUS_REPO:-.}:/repo
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    restart: "no"
 
 volumes:
   falkordb-data:

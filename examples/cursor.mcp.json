@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "nexus": {
+      "command": "node",
+      "args": ["/absolute/path/to/nexus-mcp/packages/mcp/dist/main.js"],
+      "env": {
+        "NEXUS_ROOT": "/absolute/path/to/the/repository/you/are/working/in",
+        "FALKORDB_URL": "redis://localhost:6379",
+        "NEXUS_GRAPH": "nexus",
+        "NEXUS_SALT": "change-me",
+        "NEXUS_USER": "you",
+        "NEXUS_AGENT": "cursor"
+      }
+    }
+  }
+}
