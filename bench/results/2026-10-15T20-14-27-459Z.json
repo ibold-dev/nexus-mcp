@@ -1,0 +1,321 @@
+{
+  "runId": "2026-10-15T20:14:27.459Z",
+  "repository": "/private/var/folders/r5/3mq9d8r14lscm78t0qsxv31m0000gn/T/opencode/zod",
+  "graph": "nexus_bench_1792095236758",
+  "runsPerCondition": 2,
+  "baselineCap": 25,
+  "model": "scripted stub (no network)",
+  "index": {
+    "filesIndexed": 522,
+    "symbols": 14162,
+    "callEdges": 5184,
+    "resolvedImportEdges": 647,
+    "coldSyncMs": 28939,
+    "warmSyncMs": 219,
+    "seededFacts": 1
+  },
+  "summary": [
+    {
+      "taskId": "impact-normalizeParams",
+      "condition": "with-graph",
+      "runs": 2,
+      "steps": 3,
+      "toolCalls": 2,
+      "candidates": 4,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 4660,
+      "approxTokensReturned": 1165,
+      "durationMs": 40
+    },
+    {
+      "taskId": "impact-normalizeParams",
+      "condition": "without-graph",
+      "runs": 2,
+      "steps": 6,
+      "toolCalls": 5,
+      "candidates": 4,
+      "filesOpened": 4,
+      "bytesReadFromDisk": 274402,
+      "bytesReturnedToModel": 94273,
+      "approxTokensReturned": 23568,
+      "durationMs": 130
+    },
+    {
+      "taskId": "define-ZodError",
+      "condition": "with-graph",
+      "runs": 2,
+      "steps": 3,
+      "toolCalls": 2,
+      "candidates": 145,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 3337,
+      "approxTokensReturned": 834,
+      "durationMs": 45
+    },
+    {
+      "taskId": "define-ZodError",
+      "condition": "without-graph",
+      "runs": 2,
+      "steps": 6,
+      "toolCalls": 6,
+      "candidates": 145,
+      "filesOpened": 5,
+      "bytesReadFromDisk": 44435,
+      "bytesReturnedToModel": 129086,
+      "approxTokensReturned": 32272,
+      "durationMs": 120
+    },
+    {
+      "taskId": "memory-normalizeParams",
+      "condition": "with-graph",
+      "runs": 2,
+      "steps": 2,
+      "toolCalls": 1,
+      "candidates": 4,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 912,
+      "approxTokensReturned": 228,
+      "durationMs": 19
+    },
+    {
+      "taskId": "memory-normalizeParams",
+      "condition": "without-graph",
+      "runs": 2,
+      "steps": 6,
+      "toolCalls": 5,
+      "candidates": 4,
+      "filesOpened": 4,
+      "bytesReadFromDisk": 274402,
+      "bytesReturnedToModel": 94273,
+      "approxTokensReturned": 23568,
+      "durationMs": 137
+    }
+  ],
+  "measurements": [
+    {
+      "taskId": "impact-normalizeParams",
+      "condition": "with-graph",
+      "run": 1,
+      "steps": 3,
+      "toolCalls": [
+        "nexus_locate",
+        "nexus_impact"
+      ],
+      "candidates": 4,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 4660,
+      "approxTokensReturned": 1165,
+      "durationMs": 57,
+      "answer": "12 caller(s) in 1 file(s).\nFiles: packages/zod/src/v4/core/api.ts\nCallers: _array, _base64, _base64url, _bigint, _boolean, _check.ch, _cidrv4, _cidrv6, _coercedBigint, _coercedBoolean, _coercedDate, _coercedNumber"
+    },
+    {
+      "taskId": "impact-normalizeParams",
+      "condition": "with-graph",
+      "run": 2,
+      "steps": 3,
+      "toolCalls": [
+        "nexus_locate",
+        "nexus_impact"
+      ],
+      "candidates": 4,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 4660,
+      "approxTokensReturned": 1165,
+      "durationMs": 23,
+      "answer": "12 caller(s) in 1 file(s).\nFiles: packages/zod/src/v4/core/api.ts\nCallers: _array, _base64, _base64url, _bigint, _boolean, _check.ch, _cidrv4, _cidrv6, _coercedBigint, _coercedBoolean, _coercedDate, _coercedNumber"
+    },
+    {
+      "taskId": "impact-normalizeParams",
+      "condition": "without-graph",
+      "run": 1,
+      "steps": 6,
+      "toolCalls": [
+        "search_text",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "candidates": 4,
+      "filesOpened": 4,
+      "bytesReadFromDisk": 274402,
+      "bytesReturnedToModel": 94273,
+      "approxTokensReturned": 23568,
+      "durationMs": 130,
+      "answer": "\"normalizeParams\" appears 137 time(s) in 4 file(s).\nRead 4 of them.\nA mention is not a call: each file had to be read to tell the difference."
+    },
+    {
+      "taskId": "impact-normalizeParams",
+      "condition": "without-graph",
+      "run": 2,
+      "steps": 6,
+      "toolCalls": [
+        "search_text",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "candidates": 4,
+      "filesOpened": 4,
+      "bytesReadFromDisk": 274402,
+      "bytesReturnedToModel": 94273,
+      "approxTokensReturned": 23568,
+      "durationMs": 130,
+      "answer": "\"normalizeParams\" appears 137 time(s) in 4 file(s).\nRead 4 of them.\nA mention is not a call: each file had to be read to tell the difference."
+    },
+    {
+      "taskId": "define-ZodError",
+      "condition": "with-graph",
+      "run": 1,
+      "steps": 3,
+      "toolCalls": [
+        "nexus_locate",
+        "nexus_context"
+      ],
+      "candidates": 145,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 3337,
+      "approxTokensReturned": 834,
+      "durationMs": 49,
+      "answer": "$ZodErrorTree is defined in packages/zod/src/v4/core/errors.ts."
+    },
+    {
+      "taskId": "define-ZodError",
+      "condition": "with-graph",
+      "run": 2,
+      "steps": 3,
+      "toolCalls": [
+        "nexus_locate",
+        "nexus_context"
+      ],
+      "candidates": 145,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 3337,
+      "approxTokensReturned": 834,
+      "durationMs": 40,
+      "answer": "$ZodErrorTree is defined in packages/zod/src/v4/core/errors.ts."
+    },
+    {
+      "taskId": "define-ZodError",
+      "condition": "without-graph",
+      "run": 1,
+      "steps": 6,
+      "toolCalls": [
+        "search_text",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "candidates": 145,
+      "filesOpened": 5,
+      "bytesReadFromDisk": 44435,
+      "bytesReturnedToModel": 129086,
+      "approxTokensReturned": 32272,
+      "durationMs": 120,
+      "answer": ""
+    },
+    {
+      "taskId": "define-ZodError",
+      "condition": "without-graph",
+      "run": 2,
+      "steps": 6,
+      "toolCalls": [
+        "search_text",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "candidates": 145,
+      "filesOpened": 5,
+      "bytesReadFromDisk": 44435,
+      "bytesReturnedToModel": 129086,
+      "approxTokensReturned": 32272,
+      "durationMs": 120,
+      "answer": ""
+    },
+    {
+      "taskId": "memory-normalizeParams",
+      "condition": "with-graph",
+      "run": 1,
+      "steps": 2,
+      "toolCalls": [
+        "nexus_recall"
+      ],
+      "candidates": 4,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 912,
+      "approxTokensReturned": 228,
+      "durationMs": 22,
+      "answer": "1 fact(s) recalled from an earlier session.\n- normalizeParams is the shared argument normaliser; changing it reaches every schema type constructor."
+    },
+    {
+      "taskId": "memory-normalizeParams",
+      "condition": "with-graph",
+      "run": 2,
+      "steps": 2,
+      "toolCalls": [
+        "nexus_recall"
+      ],
+      "candidates": 4,
+      "filesOpened": 0,
+      "bytesReadFromDisk": 0,
+      "bytesReturnedToModel": 912,
+      "approxTokensReturned": 228,
+      "durationMs": 15,
+      "answer": "1 fact(s) recalled from an earlier session.\n- normalizeParams is the shared argument normaliser; changing it reaches every schema type constructor."
+    },
+    {
+      "taskId": "memory-normalizeParams",
+      "condition": "without-graph",
+      "run": 1,
+      "steps": 6,
+      "toolCalls": [
+        "search_text",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "candidates": 4,
+      "filesOpened": 4,
+      "bytesReadFromDisk": 274402,
+      "bytesReturnedToModel": 94273,
+      "approxTokensReturned": 23568,
+      "durationMs": 158,
+      "answer": "The repository records what the code does, not what a previous session concluded about it.\nNo number of file reads answers this: the conclusion has to be reached again from scratch."
+    },
+    {
+      "taskId": "memory-normalizeParams",
+      "condition": "without-graph",
+      "run": 2,
+      "steps": 6,
+      "toolCalls": [
+        "search_text",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "candidates": 4,
+      "filesOpened": 4,
+      "bytesReadFromDisk": 274402,
+      "bytesReturnedToModel": 94273,
+      "approxTokensReturned": 23568,
+      "durationMs": 116,
+      "answer": "The repository records what the code does, not what a previous session concluded about it.\nNo number of file reads answers this: the conclusion has to be reached again from scratch."
+    }
+  ]
+}
