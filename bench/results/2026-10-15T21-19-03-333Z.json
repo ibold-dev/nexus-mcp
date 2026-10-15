@@ -1,7 +1,7 @@
 {
-  "runId": "2026-10-15T20:14:27.459Z",
+  "runId": "2026-10-15T21:19:03.333Z",
   "repository": "/private/var/folders/r5/3mq9d8r14lscm78t0qsxv31m0000gn/T/opencode/zod",
-  "graph": "nexus_bench_1792095236758",
+  "graph": "nexus_bench_1792099103984",
   "runsPerCondition": 2,
   "baselineCap": 25,
   "model": "scripted stub (no network)",
@@ -10,7 +10,7 @@
     "symbols": 14162,
     "callEdges": 5184,
     "resolvedImportEdges": 647,
-    "coldSyncMs": 28939,
+    "coldSyncMs": 37532,
     "warmSyncMs": 219,
     "seededFacts": 1
   },
@@ -24,8 +24,8 @@
       "candidates": 4,
       "filesOpened": 0,
       "bytesReadFromDisk": 0,
-      "bytesReturnedToModel": 4660,
-      "approxTokensReturned": 1165,
+      "bytesReturnedToModel": 4656,
+      "approxTokensReturned": 1164,
       "durationMs": 40
     },
     {
@@ -39,7 +39,7 @@
       "bytesReadFromDisk": 274402,
       "bytesReturnedToModel": 94273,
       "approxTokensReturned": 23568,
-      "durationMs": 130
+      "durationMs": 141
     },
     {
       "taskId": "define-ZodError",
@@ -50,22 +50,22 @@
       "candidates": 145,
       "filesOpened": 0,
       "bytesReadFromDisk": 0,
-      "bytesReturnedToModel": 3337,
-      "approxTokensReturned": 834,
-      "durationMs": 45
+      "bytesReturnedToModel": 3572,
+      "approxTokensReturned": 893,
+      "durationMs": 46
     },
     {
       "taskId": "define-ZodError",
       "condition": "without-graph",
       "runs": 2,
-      "steps": 6,
-      "toolCalls": 6,
+      "steps": 27,
+      "toolCalls": 26,
       "candidates": 145,
-      "filesOpened": 5,
-      "bytesReadFromDisk": 44435,
-      "bytesReturnedToModel": 129086,
-      "approxTokensReturned": 32272,
-      "durationMs": 120
+      "filesOpened": 25,
+      "bytesReadFromDisk": 156216,
+      "bytesReturnedToModel": 240867,
+      "approxTokensReturned": 60217,
+      "durationMs": 160
     },
     {
       "taskId": "memory-normalizeParams",
@@ -78,7 +78,7 @@
       "bytesReadFromDisk": 0,
       "bytesReturnedToModel": 912,
       "approxTokensReturned": 228,
-      "durationMs": 19
+      "durationMs": 16
     },
     {
       "taskId": "memory-normalizeParams",
@@ -91,7 +91,7 @@
       "bytesReadFromDisk": 274402,
       "bytesReturnedToModel": 94273,
       "approxTokensReturned": 23568,
-      "durationMs": 137
+      "durationMs": 124
     }
   ],
   "measurements": [
@@ -107,10 +107,10 @@
       "candidates": 4,
       "filesOpened": 0,
       "bytesReadFromDisk": 0,
-      "bytesReturnedToModel": 4660,
-      "approxTokensReturned": 1165,
-      "durationMs": 57,
-      "answer": "12 caller(s) in 1 file(s).\nFiles: packages/zod/src/v4/core/api.ts\nCallers: _array, _base64, _base64url, _bigint, _boolean, _check.ch, _cidrv4, _cidrv6, _coercedBigint, _coercedBoolean, _coercedDate, _coercedNumber"
+      "bytesReturnedToModel": 4656,
+      "approxTokensReturned": 1164,
+      "durationMs": 59,
+      "answer": "131 caller(s), 12 shown, in 1 file(s).\nFiles: packages/zod/src/v4/core/api.ts\nCallers: _array, _base64, _base64url, _bigint, _boolean, _check, _cidrv4, _cidrv6, _coercedBigint, _coercedBoolean, _coercedDate, _coercedNumber"
     },
     {
       "taskId": "impact-normalizeParams",
@@ -124,10 +124,10 @@
       "candidates": 4,
       "filesOpened": 0,
       "bytesReadFromDisk": 0,
-      "bytesReturnedToModel": 4660,
-      "approxTokensReturned": 1165,
-      "durationMs": 23,
-      "answer": "12 caller(s) in 1 file(s).\nFiles: packages/zod/src/v4/core/api.ts\nCallers: _array, _base64, _base64url, _bigint, _boolean, _check.ch, _cidrv4, _cidrv6, _coercedBigint, _coercedBoolean, _coercedDate, _coercedNumber"
+      "bytesReturnedToModel": 4656,
+      "approxTokensReturned": 1164,
+      "durationMs": 20,
+      "answer": "131 caller(s), 12 shown, in 1 file(s).\nFiles: packages/zod/src/v4/core/api.ts\nCallers: _array, _base64, _base64url, _bigint, _boolean, _check, _cidrv4, _cidrv6, _coercedBigint, _coercedBoolean, _coercedDate, _coercedNumber"
     },
     {
       "taskId": "impact-normalizeParams",
@@ -146,7 +146,7 @@
       "bytesReadFromDisk": 274402,
       "bytesReturnedToModel": 94273,
       "approxTokensReturned": 23568,
-      "durationMs": 130,
+      "durationMs": 133,
       "answer": "\"normalizeParams\" appears 137 time(s) in 4 file(s).\nRead 4 of them.\nA mention is not a call: each file had to be read to tell the difference."
     },
     {
@@ -166,7 +166,7 @@
       "bytesReadFromDisk": 274402,
       "bytesReturnedToModel": 94273,
       "approxTokensReturned": 23568,
-      "durationMs": 130,
+      "durationMs": 149,
       "answer": "\"normalizeParams\" appears 137 time(s) in 4 file(s).\nRead 4 of them.\nA mention is not a call: each file had to be read to tell the difference."
     },
     {
@@ -181,10 +181,10 @@
       "candidates": 145,
       "filesOpened": 0,
       "bytesReadFromDisk": 0,
-      "bytesReturnedToModel": 3337,
-      "approxTokensReturned": 834,
-      "durationMs": 49,
-      "answer": "$ZodErrorTree is defined in packages/zod/src/v4/core/errors.ts."
+      "bytesReturnedToModel": 3572,
+      "approxTokensReturned": 893,
+      "durationMs": 47,
+      "answer": "ZodError is defined in packages/zod/src/v4/classic/errors.ts."
     },
     {
       "taskId": "define-ZodError",
@@ -198,18 +198,38 @@
       "candidates": 145,
       "filesOpened": 0,
       "bytesReadFromDisk": 0,
-      "bytesReturnedToModel": 3337,
-      "approxTokensReturned": 834,
-      "durationMs": 40,
-      "answer": "$ZodErrorTree is defined in packages/zod/src/v4/core/errors.ts."
+      "bytesReturnedToModel": 3572,
+      "approxTokensReturned": 893,
+      "durationMs": 45,
+      "answer": "ZodError is defined in packages/zod/src/v4/classic/errors.ts."
     },
     {
       "taskId": "define-ZodError",
       "condition": "without-graph",
       "run": 1,
-      "steps": 6,
+      "steps": 27,
       "toolCalls": [
         "search_text",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
         "read_file",
         "read_file",
         "read_file",
@@ -217,20 +237,40 @@
         "read_file"
       ],
       "candidates": 145,
-      "filesOpened": 5,
-      "bytesReadFromDisk": 44435,
-      "bytesReturnedToModel": 129086,
-      "approxTokensReturned": 32272,
-      "durationMs": 120,
-      "answer": ""
+      "filesOpened": 25,
+      "bytesReadFromDisk": 156216,
+      "bytesReturnedToModel": 240867,
+      "approxTokensReturned": 60217,
+      "durationMs": 160,
+      "answer": "\"ZodError\" appears 617 time(s) across 145 file(s).\nRead 25 of them to look for the definition.\nNothing in the search result distinguishes a definition from a use."
     },
     {
       "taskId": "define-ZodError",
       "condition": "without-graph",
       "run": 2,
-      "steps": 6,
+      "steps": 27,
       "toolCalls": [
         "search_text",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
         "read_file",
         "read_file",
         "read_file",
@@ -238,12 +278,12 @@
         "read_file"
       ],
       "candidates": 145,
-      "filesOpened": 5,
-      "bytesReadFromDisk": 44435,
-      "bytesReturnedToModel": 129086,
-      "approxTokensReturned": 32272,
-      "durationMs": 120,
-      "answer": ""
+      "filesOpened": 25,
+      "bytesReadFromDisk": 156216,
+      "bytesReturnedToModel": 240867,
+      "approxTokensReturned": 60217,
+      "durationMs": 160,
+      "answer": "\"ZodError\" appears 617 time(s) across 145 file(s).\nRead 25 of them to look for the definition.\nNothing in the search result distinguishes a definition from a use."
     },
     {
       "taskId": "memory-normalizeParams",
@@ -258,7 +298,7 @@
       "bytesReadFromDisk": 0,
       "bytesReturnedToModel": 912,
       "approxTokensReturned": 228,
-      "durationMs": 22,
+      "durationMs": 20,
       "answer": "1 fact(s) recalled from an earlier session.\n- normalizeParams is the shared argument normaliser; changing it reaches every schema type constructor."
     },
     {
@@ -274,7 +314,7 @@
       "bytesReadFromDisk": 0,
       "bytesReturnedToModel": 912,
       "approxTokensReturned": 228,
-      "durationMs": 15,
+      "durationMs": 12,
       "answer": "1 fact(s) recalled from an earlier session.\n- normalizeParams is the shared argument normaliser; changing it reaches every schema type constructor."
     },
     {
@@ -294,7 +334,7 @@
       "bytesReadFromDisk": 274402,
       "bytesReturnedToModel": 94273,
       "approxTokensReturned": 23568,
-      "durationMs": 158,
+      "durationMs": 125,
       "answer": "The repository records what the code does, not what a previous session concluded about it.\nNo number of file reads answers this: the conclusion has to be reached again from scratch."
     },
     {
@@ -314,7 +354,7 @@
       "bytesReadFromDisk": 274402,
       "bytesReturnedToModel": 94273,
       "approxTokensReturned": 23568,
-      "durationMs": 116,
+      "durationMs": 122,
       "answer": "The repository records what the code does, not what a previous session concluded about it.\nNo number of file reads answers this: the conclusion has to be reached again from scratch."
     }
   ]

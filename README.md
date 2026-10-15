@@ -373,12 +373,12 @@ model's cleverness against another's.
 
 | Task | Tools | Calls | Files mentioning the name | Files opened | Bytes from disk | Tokens returned | Wall clock |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Which symbols call `normalizeParams`? | nexus | 2 | 4 | 0 | 0 | 1,165 | 47 ms |
-| | filesystem | 5 | 4 | 4 | 274,402 | 23,568 | 151 ms |
-| Where is `ZodError` defined? | nexus | 2 | 145 | 0 | 0 | 834 | 44 ms |
-| | filesystem | 26 | 145 | 25 | 156,216 | 60,217 | 159 ms |
-| What did earlier sessions learn about `normalizeParams`? | nexus | 1 | 4 | 0 | 0 | 228 | 22 ms |
-| | filesystem | 5 | 4 | 4 | 274,402 | 23,568 | 140 ms |
+| Which symbols call `normalizeParams`? | nexus | 2 | 4 | 0 | 0 | 1,164 | 40 ms |
+| | filesystem | 5 | 4 | 4 | 274,402 | 23,568 | 141 ms |
+| Where is `ZodError` defined? | nexus | 2 | 145 | 0 | 0 | 893 | 46 ms |
+| | filesystem | 26 | 145 | 25 | 156,216 | 60,217 | 160 ms |
+| What did earlier sessions learn about `normalizeParams`? | nexus | 1 | 4 | 0 | 0 | 228 | 16 ms |
+| | filesystem | 5 | 4 | 4 | 274,402 | 23,568 | 124 ms |
 
 Read the third task carefully, because it is the one that is not a cost comparison. No
 amount of reading source code recovers what a previous session concluded about it; the
@@ -386,7 +386,7 @@ baseline reads 274 KB and
 [reaches the same place it started](bench/src/tasks.ts). The graph answers it in 228
 tokens, because the conclusion was written down when it was reached.
 
-Two things the table does not say, and both matter:
+Three things the table does not say, and all of them matter:
 
 1. **The baseline is the honest minimum, not a straw man.** It reads every file that
    mentions the name, because a mention is not a call and each candidate has to be
@@ -397,6 +397,13 @@ Two things the table does not say, and both matter:
    been built. It is paid once per repository and re-paid incrementally, rather than once
    per question, which is what makes the trade worth it for a repository an agent will
    touch more than a few times.
+3. **The graph's answer is a page, and says so.** Callers run into the hundreds in a
+   repository this size — `normalizeParams` has 131 direct callers and 615 within three
+   hops — so `nexus_impact` returns the nearest 12 and reports the true total beside them.
+   The results file records `131 caller(s), 12 shown, in 1 file(s)`, and the tool sets
+   `truncated` whenever what it returns is not the whole answer. A page presented as a
+   total would be worse than the baseline it is measured against, which discloses
+   `Read 12 of 25`.
 
 Run it yourself against any repository — raw JSON lands in `bench/results/`:
 
@@ -431,7 +438,7 @@ pnpm test        # vitest, against a live FalkorDB
 pnpm build
 ```
 
-185 tests across 20 files. Most of them run against a real FalkorDB, because the parts
+186 tests across 20 files. Most of them run against a real FalkorDB, because the parts
 worth testing are the Cypher and the graph behaviour, and a mock would test the mock. The
 suite covers the parser against real TypeScript, sync idempotence and per-file isolation,
 the two-connection handoff (two independent clients against one graph, which is the whole

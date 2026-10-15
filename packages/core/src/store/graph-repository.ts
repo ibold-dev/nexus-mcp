@@ -88,6 +88,11 @@ export class GraphRepository {
     if (fullText === undefined) {
       return [];
     }
+    // Ranking puts an exact name first. The full-text index scores a prefix
+    // match against four fields, so asking a real repository for `ZodError`
+    // returned `$ZodErrorTree` ahead of the class actually named `ZodError` —
+    // the search had found the right symbol and then buried it. An exact name
+    // is the strongest thing a query can mean, and it is cheap to say so.
     return this.client.query<SymbolSearchHit>(
       `CALL db.idx.fulltext.queryNodes('Symbol', $query) YIELD node, score
        MATCH (f:File)-[:CONTAINS]->(node)
@@ -101,9 +106,18 @@ export class GraphRepository {
               node.endLine AS endLine,
               node.signature AS signature,
               score
-       ORDER BY score DESC, qualifiedName ASC
+       ORDER BY (toLower(node.name) = $exactName) DESC,
+                (node.searchText = $normalizedName) DESC,
+                score DESC,
+                qualifiedName ASC
        LIMIT $limit`,
-      { repoId, query: fullText, limit },
+      {
+        repoId,
+        query: fullText,
+        exactName: query.trim().toLowerCase(),
+        normalizedName: symbolSearchText(query),
+        limit,
+      },
     );
   }
 

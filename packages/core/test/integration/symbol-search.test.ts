@@ -81,6 +81,21 @@ describe("GraphRepository.searchSymbols against FalkorDB", () => {
       { id: "b-config", repoId: repoB, path: "lib/config.ts", hash: "h3", language: "typescript", lineCount: 10, indexedAt },
       [symbol("parseConfig", 0, { kind: "function", doc: "Other repository copy" })],
     );
+    // Copied from the shape that broke it in a real repository: a name that
+    // extends the queried one, with a doc and a signature that both repeat it,
+    // scores higher than the symbol the name actually belongs to.
+    await repository.replaceFileSymbols(
+      repoA,
+      { id: "a-errors", repoId: repoA, path: "src/errors.ts", hash: "h5", language: "typescript", lineCount: 40, indexedAt },
+      [
+        symbol("ZodError", 0, { kind: "class", signature: "class ZodError extends Error" }),
+        symbol("$ZodErrorTree", 1, {
+          kind: "typeAlias",
+          doc: "The ZodError as a tree. Formatting a ZodError walks it.",
+          signature: "type $ZodErrorTree = ZodError & { issues: ZodError[] }",
+        }),
+      ],
+    );
   });
 
   it("finds symbols by name prefix and returns locations and scores", async () => {
@@ -95,6 +110,15 @@ describe("GraphRepository.searchSymbols against FalkorDB", () => {
       endLine: 5,
     });
     expect(hits[0]?.score).toBeGreaterThan(0);
+  });
+
+  it("ranks the symbol an exact name belongs to above a longer one that scores higher", async () => {
+    const hits = await repository.searchSymbols(repoA, "ZodError", 8);
+
+    // Against a real repository this query returned `$ZodErrorTree` first, with
+    // a score of 12, and the class actually named `ZodError` sixth with 7.
+    expect(hits[0]?.qualifiedName).toBe("ZodError");
+    expect(hits.map((hit) => hit.qualifiedName)).toContain("$ZodErrorTree");
   });
 
   it("matches words in doc comments and signatures", async () => {
