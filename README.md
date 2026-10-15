@@ -411,7 +411,7 @@ packages/agent       the reference agent, provider switch, scripted model
 apps/demo            the two-process handoff demo
 bench                the benchmark and its results
 examples             client configs for OpenCode, Claude Code, Cursor
-docs                 graph model and the build log
+docs                 graph model, build log, and the demo script
 ```
 
 ---
@@ -455,6 +455,9 @@ as the cost of *not* having it.
 Both tracks share one graph rather than being two features side by side: memory attaches
 to code through `ABOUT` and `APPLIES_TO`, so a recalled fact points at the symbol it was
 learned about.
+
+The [demo script](docs/demo-script.md) is the shot-by-shot version of both, with the
+command and the output to expect for each one.
 
 ---
 
