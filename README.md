@@ -222,8 +222,10 @@ recall response reports the counts as they stand after the call.
 
 `searchText` is a camelCase-split copy of the symbol name, so `nexus_locate
 "normalize params"` and `nexus_locate normalizeParams` find the same symbol. Search
-terms are OR-ed and ranked by score, and the match is reported, so a result can be
-trusted or discarded rather than just believed.
+terms are OR-ed, and an exact name ranks before a higher-scoring longer one: a query
+for `ZodError` in a real repository was returning `$ZodErrorTree` first until the
+ordering said otherwise. The match is reported, so a result can be trusted or
+discarded rather than just believed.
 
 ---
 
@@ -238,7 +240,7 @@ CALL db.idx.fulltext.queryNodes('Symbol', $query) YIELD node, score
 MATCH (f:File)-[:CONTAINS]->(node)
 MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(f)
 RETURN node.id AS symbolId, ..., score
-ORDER BY score DESC, qualifiedName ASC
+ORDER BY (toLower(node.name) = $exactName) DESC, score DESC, qualifiedName ASC
 LIMIT $limit
 ```
 

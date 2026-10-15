@@ -120,8 +120,12 @@ Created on first use, idempotently.
 `"normalizeParams"` reach the same symbol. Full-text from FalkorDB's `db.idx.fulltext`,
 with an explicit index — not a `CONTAINS` scan, which would be a trap at 14,000 symbols.
 
-Full-text has one FalkorDB wrinkle worth recording: an `ORDER BY` expression has to be
-projected, so every ranked query returns `score AS score` and orders by it.
+Full-text has one FalkorDB wrinkle worth recording: an `ORDER BY` on a value returned
+by `YIELD` has to be projected, so ranked queries return `score AS score` and can order
+by it. Symbol search orders by exactness first and score second, because a prefix match
+across four fields will rank a longer name above the name itself: asking an indexed
+repository for `ZodError` returned `$ZodErrorTree` first and the class named `ZodError`
+sixth.
 
 ## Sizes
 
