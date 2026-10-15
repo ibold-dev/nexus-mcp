@@ -23,6 +23,9 @@
       "path": "packages/mcp"
     },
     {
+      "path": "packages/agent"
+    },
+    {
       "path": "apps/demo"
     }
   ]

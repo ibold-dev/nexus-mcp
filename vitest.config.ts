@@ -9,6 +9,8 @@ export default defineConfig({
       { find: "@nexus/core", replacement: source("core") },
       { find: "@nexus/parser-ts", replacement: source("parser-ts") },
       { find: "@nexus/indexer", replacement: source("indexer") },
+      { find: "@nexus/mcp", replacement: source("mcp") },
+      { find: "@nexus/agent", replacement: source("agent") },
     ],
   },
   test: {
