@@ -1,9 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  findSymbolPaths,
   getSymbolContext,
   GraphRepository,
   normalizeRootPath,
+  PATH_DIRECTIONS,
+  MAX_PATH_DEPTH,
+  MAX_PATHS,
   repositoryId,
   SYMBOL_KINDS,
   symbolSearchText,
@@ -125,6 +129,59 @@ export function createNexusServer(options: NexusServerOptions): McpServer {
         indexedAt: state.indexedAt,
         depth,
         ...context,
+      });
+    },
+  );
+
+  server.registerTool(
+    "nexus_path",
+    {
+      title: "Call path between symbols",
+      description:
+        "Explain how one symbol reaches another along call edges, hop by hop. Each hop says whether it follows the call or walks against it, and whether the edge is resolved or heuristic. direction \"both\" finds a relationship in either direction. Returns no path when there is none within maxDepth.",
+      inputSchema: {
+        from: z.string().min(1),
+        to: z.string().min(1),
+        direction: z.enum(PATH_DIRECTIONS).default("both"),
+        maxDepth: z.number().int().min(1).max(MAX_PATH_DEPTH).default(4),
+        maxPaths: z.number().int().min(1).max(MAX_PATHS).default(1),
+      },
+    },
+    async ({ from, to, direction, maxDepth, maxPaths }) => {
+      if (from === to) {
+        return failure("from and to must be two different symbolIds.");
+      }
+      const state = await repository.getRepositoryState(repoId);
+      const result = await findSymbolPaths(options.client, repoId, from, to, { direction, maxDepth, maxPaths });
+      if (!result) {
+        return failure("Symbol not found in this repository. Use nexus_locate to find a symbolId.");
+      }
+
+      const paths = result.paths.map((path) => ({
+        hops: path.hops,
+        resolution: path.resolution,
+        confidence: path.confidence,
+        steps: path.steps.map((step) => ({
+          direction: step.direction,
+          from: { symbolId: step.from.symbolId, qualifiedName: step.from.qualifiedName, path: step.from.path },
+          to: { symbolId: step.to.symbolId, qualifiedName: step.to.qualifiedName, path: step.to.path },
+          line: step.line,
+          resolution: step.resolution,
+          confidence: step.confidence,
+        })),
+      }));
+
+      return json({
+        graphVersion: state.graphVersion,
+        indexedAt: state.indexedAt,
+        from: { symbolId: result.from.symbolId, qualifiedName: result.from.qualifiedName, path: result.from.path },
+        to: { symbolId: result.to.symbolId, qualifiedName: result.to.qualifiedName, path: result.to.path },
+        direction,
+        found: paths.length > 0,
+        paths,
+        ...(paths.length === 0
+          ? { hint: `No call path within ${maxDepth} hops going ${direction}. Try direction "both" or a larger maxDepth.` }
+          : {}),
       });
     },
   );

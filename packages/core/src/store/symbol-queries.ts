@@ -35,6 +35,165 @@ export interface ContextOptions {
   limit: number;
 }
 
+export const PATH_DIRECTIONS = ["outgoing", "incoming", "both"] as const;
+export type PathDirection = (typeof PATH_DIRECTIONS)[number];
+
+export const MAX_PATH_DEPTH = 8;
+export const MAX_PATHS = 3;
+
+export interface SymbolStep {
+  symbolId: string;
+  qualifiedName: string;
+  kind: SymbolKind;
+  path: string;
+}
+
+export interface PathStep {
+  /** "outgoing" when this hop follows the call edge, "incoming" when it walks against it. */
+  direction: "outgoing" | "incoming";
+  from: SymbolStep;
+  to: SymbolStep;
+  line: number;
+  resolution: Resolution;
+  confidence: number;
+}
+
+export interface SymbolPath {
+  hops: number;
+  resolution: Resolution;
+  confidence: number;
+  steps: PathStep[];
+}
+
+export interface SymbolPathsResult {
+  from: SymbolRef;
+  to: SymbolRef;
+  paths: SymbolPath[];
+}
+
+export interface PathOptions {
+  direction: PathDirection;
+  maxDepth: number;
+  maxPaths: number;
+}
+
+function round4(value: number): number {
+  return Number(value.toFixed(4));
+}
+
+function assertPathBounds(options: PathOptions): void {
+  if (!PATH_DIRECTIONS.includes(options.direction)) {
+    throw new Error(`direction must be one of ${PATH_DIRECTIONS.join(", ")}`);
+  }
+  if (!Number.isInteger(options.maxDepth) || options.maxDepth < 1 || options.maxDepth > MAX_PATH_DEPTH) {
+    throw new Error(`maxDepth must be an integer from 1 to ${MAX_PATH_DEPTH}`);
+  }
+  if (!Number.isInteger(options.maxPaths) || options.maxPaths < 1 || options.maxPaths > MAX_PATHS) {
+    throw new Error(`maxPaths must be an integer from 1 to ${MAX_PATHS}`);
+  }
+}
+
+async function loadSteps(
+  client: GraphClient,
+  repoId: string,
+  symbolIds: readonly string[],
+): Promise<Map<string, SymbolStep>> {
+  const rows = await client.query<SymbolStep>(
+    `MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(f:File)-[:CONTAINS]->(s:Symbol)
+     WHERE s.id IN $symbolIds
+     RETURN s.id AS symbolId, s.qualifiedName AS qualifiedName, s.kind AS kind, f.path AS path`,
+    { repoId, symbolIds: [...symbolIds] },
+  );
+  return new Map(rows.map((row) => [row.symbolId, row]));
+}
+
+interface FoundPathRow {
+  ids: string[];
+  sources: string[];
+  resolutions: Resolution[];
+  confidences: number[];
+  lines: number[];
+}
+
+/**
+ * Shortest call paths between two symbols, using FalkorDB's algo.SPpaths.
+ * Hops are labelled by whether they follow the call edge or walk against it,
+ * and a path's confidence is the product of its edge confidences.
+ */
+export async function findSymbolPaths(
+  client: GraphClient,
+  repoId: string,
+  fromSymbolId: string,
+  toSymbolId: string,
+  options: PathOptions,
+): Promise<SymbolPathsResult | undefined> {
+  assertPathBounds(options);
+  const from = await getSymbolRef(client, repoId, fromSymbolId);
+  const to = await getSymbolRef(client, repoId, toSymbolId);
+  if (!from || !to) {
+    return undefined;
+  }
+
+  // `direction` is validated against a closed set above, so inlining it is safe.
+  const rows = await client.query<FoundPathRow>(
+    `MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(:File)-[:CONTAINS]->(s:Symbol {id: $fromSymbolId})
+     MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(:File)-[:CONTAINS]->(t:Symbol {id: $toSymbolId})
+     CALL algo.SPpaths({
+       sourceNode: s,
+       targetNode: t,
+       relTypes: ['POSSIBLY_CALLS'],
+       relDirection: '${options.direction}',
+       maxLen: $maxDepth,
+       pathCount: $maxPaths
+     })
+     YIELD path
+     RETURN [n IN nodes(path) | n.id] AS ids,
+            [r IN relationships(path) | startNode(r).id] AS sources,
+            [r IN relationships(path) | r.resolution] AS resolutions,
+            [r IN relationships(path) | r.confidence] AS confidences,
+            [r IN relationships(path) | r.line] AS lines`,
+    { repoId, fromSymbolId, toSymbolId, maxDepth: options.maxDepth, maxPaths: options.maxPaths },
+  );
+
+  const steps = await loadSteps(client, repoId, rows.flatMap((row) => row.ids));
+  const paths: SymbolPath[] = [];
+  for (const row of rows) {
+    const hops = row.ids.length - 1;
+    if (hops < 1) {
+      continue;
+    }
+    const resolvedSteps: PathStep[] = [];
+    for (let hop = 0; hop < hops; hop += 1) {
+      const fromNode = steps.get(row.ids[hop] ?? "");
+      const toNode = steps.get(row.ids[hop + 1] ?? "");
+      if (!fromNode || !toNode) {
+        break;
+      }
+      resolvedSteps.push({
+        direction: row.sources[hop] === fromNode.symbolId ? "outgoing" : "incoming",
+        from: fromNode,
+        to: toNode,
+        line: row.lines[hop] ?? 0,
+        resolution: row.resolutions[hop] ?? "resolved",
+        confidence: row.confidences[hop] ?? 1,
+      });
+    }
+    if (resolvedSteps.length !== hops) {
+      continue;
+    }
+    paths.push({
+      hops,
+      resolution: resolvedSteps.some((step) => step.resolution === "heuristic") ? "heuristic" : "resolved",
+      confidence: round4(resolvedSteps.reduce((product, step) => product * step.confidence, 1)),
+      steps: resolvedSteps,
+    });
+  }
+
+  paths.sort((a, b) => a.hops - b.hops || a.confidence - b.confidence);
+  return { from, to, paths };
+}
+
+
 function assertBounds(options: ContextOptions): void {
   if (!Number.isInteger(options.depth) || options.depth < 1 || options.depth > MAX_CONTEXT_DEPTH) {
     throw new Error(`depth must be an integer from 1 to ${MAX_CONTEXT_DEPTH}`);

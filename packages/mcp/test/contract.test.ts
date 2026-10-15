@@ -41,6 +41,17 @@ describe("Nexus MCP server contract", () => {
     graph = await connectGraph(FALKORDB_URL, graphName);
   });
 
+  async function locateId(qualifiedName: string): Promise<string> {
+    const located = await call("nexus_locate", { query: qualifiedName });
+    const hit = (located.body.results as { symbolId: string; qualifiedName: string }[]).find(
+      (candidate) => candidate.qualifiedName === qualifiedName,
+    );
+    if (!hit) {
+      throw new Error(`no symbol ${qualifiedName}`);
+    }
+    return hit.symbolId;
+  }
+
   afterAll(async () => {
     await graph.deleteGraph().catch(() => undefined);
     await graph.close();
@@ -64,11 +75,24 @@ describe("Nexus MCP server contract", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("exposes exactly the three tools with validated inputs", async () => {
+  it("exposes exactly the four tools with validated inputs", async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name).sort()).toEqual(["nexus_context", "nexus_locate", "nexus_sync"]);
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "nexus_context",
+      "nexus_locate",
+      "nexus_path",
+      "nexus_sync",
+    ]);
     const locate = tools.find((tool) => tool.name === "nexus_locate");
     expect(Object.keys(locate?.inputSchema.properties ?? {})).toEqual(["query", "kind", "limit"]);
+    const path = tools.find((tool) => tool.name === "nexus_path");
+    expect(Object.keys(path?.inputSchema.properties ?? {})).toEqual([
+      "from",
+      "to",
+      "direction",
+      "maxDepth",
+      "maxPaths",
+    ]);
   });
 
   it("answers locate with graphVersion 0 and a hint before the repository is indexed", async () => {
@@ -127,6 +151,64 @@ describe("Nexus MCP server contract", () => {
     ]);
     expect(context.body.imports).toEqual([{ path: "src/b.ts", specifier: "./b" }]);
     expect(context.text.length).toBeLessThan(MAX_RESPONSE_CHARS);
+  });
+
+  it("explains how one symbol reaches another, hop by hop", async () => {
+    await write(root, "src/b.ts", `import { deeper } from "./c";\nexport function helper() { return deeper(); }\n`);
+    await write(root, "src/c.ts", `export function deeper() { return 1; }\n`);
+    await call("nexus_sync");
+
+    const runId = await locateId("run");
+    const deeperId = await locateId("deeper");
+    const outcome = await call("nexus_path", { from: runId, to: deeperId, direction: "outgoing" });
+
+    expect(outcome.isError).toBe(false);
+    expect(outcome.body).toMatchObject({
+      graphVersion: 1,
+      found: true,
+      direction: "outgoing",
+      from: { qualifiedName: "run", path: "src/a.ts" },
+      to: { qualifiedName: "deeper", path: "src/c.ts" },
+    });
+    const [path] = outcome.body.paths as {
+      hops: number;
+      resolution: string;
+      confidence: number;
+      steps: { direction: string; from: { qualifiedName: string }; to: { qualifiedName: string }; line: number }[];
+    }[];
+    expect(path).toMatchObject({ hops: 2, resolution: "resolved", confidence: 1 });
+    expect(path?.steps.map((step) => [step.direction, step.from.qualifiedName, step.to.qualifiedName])).toEqual([
+      ["outgoing", "run", "helper"],
+      ["outgoing", "helper", "deeper"],
+    ]);
+    expect(outcome.text.length).toBeLessThan(MAX_RESPONSE_CHARS);
+  });
+
+  it("finds a relationship in either direction and says which way each hop went", async () => {
+    await write(root, "src/b.ts", `import { deeper } from "./c";\nexport function helper() { return deeper(); }\n`);
+    await write(root, "src/c.ts", `export function deeper() { return 1; }\n`);
+    await call("nexus_sync");
+    const runId = await locateId("run");
+    const deeperId = await locateId("deeper");
+
+    const outgoing = await call("nexus_path", { from: deeperId, to: runId, direction: "outgoing" });
+    expect(outgoing.body).toMatchObject({ found: false, paths: [] });
+    expect(String(outgoing.body.hint)).toMatch(/maxDepth|direction/);
+
+    const both = await call("nexus_path", { from: deeperId, to: runId, direction: "both" });
+    expect(both.body.found).toBe(true);
+    const [path] = both.body.paths as { steps: { direction: string }[] }[];
+    expect(path?.steps.map((step) => step.direction)).toEqual(["incoming", "incoming"]);
+  });
+
+  it("rejects a path request that reuses one symbol or names an unknown one", async () => {
+    await call("nexus_sync");
+    const runId = await locateId("run");
+
+    expect((await call("nexus_path", { from: runId, to: runId })).isError).toBe(true);
+    expect((await call("nexus_path", { from: runId, to: "missing" })).isError).toBe(true);
+    expect((await call("nexus_path", { from: runId, to: "missing", maxDepth: 0 })).isError).toBe(true);
+    expect((await call("nexus_path", { from: runId, to: "missing", maxDepth: 9 })).isError).toBe(true);
   });
 
   it("reports an error for an unknown symbol and for out-of-budget arguments", async () => {
