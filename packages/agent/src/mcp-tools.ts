@@ -31,6 +31,23 @@ export interface McpToolOutcome {
 
 export const DEFAULT_SERVER_ENTRY = fileURLToPath(new URL("../../mcp/dist/main.js", import.meta.url));
 
+/**
+ * How long a tool call may take before the client gives up.
+ *
+ * The MCP SDK's default is 60 seconds, which a cold index of a large repository
+ * exceeds. The failure that default produces is worse than it looks: the client
+ * abandons the call, the server carries on indexing, and the *next* question is
+ * asked of a graph that is still being written — so a locate that would have
+ * matched reports nothing. Reads are quick; a sync is not, and is given room.
+ */
+export const DEFAULT_TOOL_TIMEOUT_MS = 5 * 60 * 1000;
+export const SYNC_TOOL_TIMEOUT_MS = 30 * 60 * 1000;
+
+export function toolTimeoutMs(toolName: string): number {
+  return toolName === "nexus_sync" ? SYNC_TOOL_TIMEOUT_MS : DEFAULT_TOOL_TIMEOUT_MS;
+}
+
+
 export interface NexusToolsOptions {
   /** The repository the server indexes. */
   root: string;
@@ -61,8 +78,11 @@ export async function callNexusTool(
   client: Client,
   name: string,
   args: Record<string, unknown> = {},
+  options: { timeoutMs?: number } = {},
 ): Promise<McpToolOutcome> {
-  const result = await client.callTool({ name, arguments: args });
+  const result = await client.callTool({ name, arguments: args }, undefined, {
+    timeout: options.timeoutMs ?? toolTimeoutMs(name),
+  });
   const text = (result.content as { type: string; text?: string }[])
     .map((part) => part.text ?? "")
     .join("");

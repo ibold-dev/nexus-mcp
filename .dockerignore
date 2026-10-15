@@ -4,6 +4,7 @@ node_modules
 **/node_modules
 **/dist
 *.tsbuildinfo
+**/*.tsbuildinfo
 bench/results
 docs
 output

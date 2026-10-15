@@ -68,8 +68,24 @@ async function withServer<T>(agentId: string, work: (client: Client) => Promise<
   }
 }
 
+/**
+ * The MCP SDK abandons a request after 60 seconds by default, and a cold index
+ * of a real repository takes longer than that. Raising it for the sync is what
+ * keeps the demo honest: without it the client gives up while the server is
+ * still indexing, and the read that follows reports an empty graph.
+ *
+ * The same reasoning lives in `packages/agent/src/mcp-tools.ts`, which is where
+ * an agent's calls go. It is repeated here rather than imported so that this
+ * demo keeps depending on nothing but the server's protocol.
+ */
+const SYNC_TIMEOUT_MS = 30 * 60 * 1000;
+
 async function call(client: Client, name: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  const result = await client.callTool({ name, arguments: args });
+  const result = await client.callTool(
+    { name, arguments: args },
+    undefined,
+    name === "nexus_sync" ? { timeout: SYNC_TIMEOUT_MS } : {},
+  );
   const text = (result.content as { type: string; text: string }[])[0]?.text ?? "";
   if (result.isError === true) {
     throw new Error(`${name} failed: ${text}`);

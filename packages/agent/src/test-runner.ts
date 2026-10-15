@@ -11,7 +11,13 @@ import path from "node:path";
  * off unless the operator turns it on.
  */
 
-export const DEFAULT_TEST_RUNNER = ["pnpm", "exec", "vitest", "run", "--reporter=basic"] as const;
+/**
+ * The one command the runner will use. The reporter matters: `basic` was
+ * removed in Vitest 5, where an unknown reporter name is treated as a module
+ * path and the run dies before a single test executes. `dot` is stable and
+ * terse, which is what an agent wants to read anyway.
+ */
+export const DEFAULT_TEST_RUNNER = ["pnpm", "exec", "vitest", "run", "--reporter=dot"] as const;
 
 const TEST_FILE_PATTERN = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const MAX_OUTPUT_CHARS = 12_000;

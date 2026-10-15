@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createStubModel, resolveTestPaths, runTests, TestRunNotAllowedError } from "../src/index.js";
 
@@ -70,6 +71,26 @@ describe("allowlisted test runner", () => {
     expect(result.timedOut).toBe(true);
     expect(result.exitCode).toBeNull();
   });
+
+  it("actually runs the default command, which is the one nobody overrides", async () => {
+    // The default runner is only used in production, so a broken flag in it is
+    // invisible to every other test here — which is exactly how it shipped with
+    // `--reporter=basic`, a reporter Vitest 5 had removed. This runs the real
+    // command over a test file that touches no database, and checks it ran.
+    const workspace = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+    const result = await runTests(
+      { root: workspace, enabled: true, timeoutMs: 120_000 },
+      { paths: ["packages/agent/test/model.test.ts"] },
+    );
+
+    expect(result.command).toContain("vitest");
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/Test Files\s+1 passed/);
+    // A reporter that does not exist is reported as a missing module, and the
+    // run ends before any test does.
+    expect(result.stderr).not.toMatch(/Cannot find module|loadCustomReporterModule/);
+  }, 180_000);
 });
 
 describe("stub model", () => {
