@@ -6,13 +6,17 @@
 # NEXUS_REPO is mounted read-write because a sync writes one lock file at
 # .nexus/sync.lock to serialise syncs against the same graph. Nothing else in
 # your repository is touched.
+# Container names are left to Compose so that they are scoped to the project
+# directory. Two checkouts of this repository would otherwise fight over one
+# name, and a container that has merely been stopped still holds its name.
+# The published ports are overridable for the same reason: FALKORDB_PORT lets a
+# second checkout run beside the first instead of failing to bind 6379.
 services:
   falkordb:
     image: falkordb/falkordb:latest
-    container_name: nexus-falkordb
     ports:
-      - "6379:6379"
-      - "3000:3000"
+      - "${FALKORDB_PORT:-6379}:6379"
+      - "${FALKORDB_BROWSER_PORT:-3000}:3000"
     volumes:
       - falkordb-data:/var/lib/falkordb/data
     healthcheck:
@@ -25,7 +29,6 @@ services:
   agent:
     build: .
     image: nexus-mcp
-    container_name: nexus-agent
     command:
       - packages/agent/dist/main.js
       - --symbol
