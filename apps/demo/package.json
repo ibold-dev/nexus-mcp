@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "index": "node src/index-repo.ts"
+    "index": "node src/index-repo.ts",
+    "handoff": "node src/handoff.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@nexus/core": "workspace:*",
     "@nexus/indexer": "workspace:*",
     "@nexus/parser-ts": "workspace:*"
