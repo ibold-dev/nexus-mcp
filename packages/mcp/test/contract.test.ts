@@ -26,8 +26,10 @@ interface Outcome {
 
 describe("Nexus MCP server contract", () => {
   let graph: GraphClient;
+  let partner: GraphClient;
   let root: string;
   let client: Client;
+  const extraClients: Client[] = [];
   const graphName = `nexus_test_${randomUUID()}`;
 
   async function call(name: string, args: Record<string, unknown> = {}): Promise<Outcome> {
@@ -39,7 +41,35 @@ describe("Nexus MCP server contract", () => {
 
   beforeAll(async () => {
     graph = await connectGraph(FALKORDB_URL, graphName);
+    partner = await connectGraph(FALKORDB_URL, graphName);
   });
+
+  /**
+   * A second agent with its own connection to the graph. It shares no state
+   * with the first one, so anything it recalls came out of FalkorDB.
+   */
+  async function openAgent(agentId: string, graphClient: GraphClient = partner): Promise<Client> {
+    const server = createNexusServer({
+      client: graphClient,
+      root,
+      projectSalt: salt,
+      userId: "user-mcp",
+      agentId,
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const agentClient = new Client({ name: `nexus-test-${agentId}`, version: "0.0.0" });
+    await agentClient.connect(clientTransport);
+    extraClients.push(agentClient);
+    return agentClient;
+  }
+
+  async function callWith(agentClient: Client, name: string, args: Record<string, unknown> = {}): Promise<Outcome> {
+    const result = await agentClient.callTool({ name, arguments: args });
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? "";
+    const isError = result.isError === true;
+    return { isError, text, body: isError ? {} : (JSON.parse(text) as Record<string, unknown>) };
+  }
 
   async function locateId(qualifiedName: string): Promise<string> {
     const located = await call("nexus_locate", { query: qualifiedName });
@@ -55,6 +85,7 @@ describe("Nexus MCP server contract", () => {
   afterAll(async () => {
     await graph.deleteGraph().catch(() => undefined);
     await graph.close();
+    await partner.close();
   });
 
   beforeEach(async () => {
@@ -63,7 +94,13 @@ describe("Nexus MCP server contract", () => {
     await write(root, "src/a.ts", `import { helper } from "./b";\nexport function run() { return helper(); }\n`);
     await write(root, "src/b.ts", `export function helper() { return 1; }\n`);
 
-    const server = createNexusServer({ client: graph, root, projectSalt: salt });
+    const server = createNexusServer({
+      client: graph,
+      root,
+      projectSalt: salt,
+      userId: "user-mcp",
+      agentId: "agent-a",
+    });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     client = new Client({ name: "nexus-test", version: "0.0.0" });
@@ -72,16 +109,20 @@ describe("Nexus MCP server contract", () => {
 
   afterEach(async () => {
     await client.close();
+    await Promise.all(extraClients.splice(0).map((extra) => extra.close()));
     await rm(root, { recursive: true, force: true });
   });
 
-  it("exposes exactly the five tools with validated inputs", async () => {
+  it("exposes exactly the eight tools with validated inputs", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       "nexus_context",
+      "nexus_handoff",
       "nexus_impact",
       "nexus_locate",
       "nexus_path",
+      "nexus_recall",
+      "nexus_remember",
       "nexus_sync",
     ]);
     const locate = tools.find((tool) => tool.name === "nexus_locate");
@@ -98,6 +139,135 @@ describe("Nexus MCP server contract", () => {
     expect(Object.keys(impact?.inputSchema.properties ?? {})).toEqual(["symbolId", "maxDepth", "limit"]);
     // The wording matters: impact is a likely map, never a promise.
     expect(String(impact?.description)).toMatch(/not a guarantee/);
+    const remember = tools.find((tool) => tool.name === "nexus_remember");
+    expect(Object.keys(remember?.inputSchema.properties ?? {})).toEqual([
+      "text",
+      "kind",
+      "name",
+      "steps",
+      "scope",
+      "confidence",
+      "aboutSymbolId",
+      "appliesToPath",
+    ]);
+    const recall = tools.find((tool) => tool.name === "nexus_recall");
+    expect(Object.keys(recall?.inputSchema.properties ?? {})).toEqual(["query", "include", "limit"]);
+    const handoff = tools.find((tool) => tool.name === "nexus_handoff");
+    expect(Object.keys(handoff?.inputSchema.properties ?? {})).toEqual(["summary", "toAgent", "taskRef"]);
+  });
+
+  it("remembers a fact with a symbol, and another agent recalls it from the graph", async () => {
+    await call("nexus_sync");
+    const runId = await locateId("run");
+
+    const remembered = await call("nexus_remember", {
+      text: "run() is the CLI entry point and must stay synchronous.",
+      scope: "symbol",
+      confidence: 0.9,
+      aboutSymbolId: runId,
+    });
+    expect(remembered.isError).toBe(false);
+    expect(remembered.body).toMatchObject({ kind: "fact", scope: "symbol", confidence: 0.9, aboutSymbolId: runId });
+
+    // A different agent process, with its own connection, reads it back.
+    const secondAgent = await openAgent("agent-b");
+    const recalled = await callWith(secondAgent, "nexus_recall", { query: "entry point" });
+
+    expect(recalled.isError).toBe(false);
+    expect(recalled.body).toMatchObject({ query: "entry point", totals: { facts: 1, procedures: 0, handoffs: 0 } });
+    expect(recalled.body.facts).toEqual([
+      {
+        factId: remembered.body.factId,
+        text: "run() is the CLI entry point and must stay synchronous.",
+        scope: "symbol",
+        confidence: 0.9,
+        usedCount: 1,
+        updatedAt: expect.any(String),
+        about: { symbolId: runId, qualifiedName: "run", path: "src/a.ts" },
+      },
+    ]);
+    // Recalling it once from each agent raised nothing but the use count.
+    expect(recalled.text.length).toBeLessThan(MAX_RESPONSE_CHARS);
+
+    const third = await callWith(secondAgent, "nexus_recall");
+    expect((third.body.facts as { usedCount: number }[])[0]?.usedCount).toBe(2);
+  });
+
+  it("remembers a procedure that a later recall ranks by relevance", async () => {
+    await call("nexus_sync");
+    const stored = await call("nexus_remember", {
+      kind: "procedure",
+      name: "Check a rename",
+      steps: ["Call nexus_impact on the old name", "Update every caller it lists", "Call nexus_sync"],
+    });
+    expect(stored.isError).toBe(false);
+    expect(stored.body).toMatchObject({ kind: "procedure", name: "Check a rename", stepCount: 3 });
+
+    const secondAgent = await openAgent("agent-b");
+    const recalled = await callWith(secondAgent, "nexus_recall", { query: "rename", include: ["procedure"] });
+
+    expect(recalled.body.totals).toEqual({ facts: 0, procedures: 1, handoffs: 0 });
+    expect(recalled.body.procedures).toEqual([
+      {
+        procedureId: stored.body.procedureId,
+        name: "Check a rename",
+        steps: ["Call nexus_impact on the old name", "Update every caller it lists", "Call nexus_sync"],
+        stepCount: 3,
+        usedCount: 1,
+        updatedAt: expect.any(String),
+        appliesTo: null,
+      },
+    ]);
+  });
+
+  it("hands a session over with its own turns as evidence", async () => {
+    await call("nexus_sync");
+    await call("nexus_remember", { text: "The graph held 2 symbols after the first sync." });
+    await call("nexus_remember", { kind: "procedure", name: "Warm the index", steps: ["Call nexus_sync"] });
+
+    const handoff = await call("nexus_handoff", {
+      summary: "Index is warm; helper is still unused by the tests.",
+      toAgent: "agent-b",
+      taskRef: "day-3",
+    });
+
+    expect(handoff.isError).toBe(false);
+    expect(handoff.body).toMatchObject({ fromAgent: "agent-a", toAgent: "agent-b", taskRef: "day-3", evidenceTurns: 2 });
+
+    const secondAgent = await openAgent("agent-b");
+    const recalled = await callWith(secondAgent, "nexus_recall", { query: "warm" });
+    expect(recalled.body.handoffs).toEqual([
+      {
+        handoffId: handoff.body.handoffId,
+        summary: "Index is warm; helper is still unused by the tests.",
+        fromAgent: "agent-a",
+        toAgent: "agent-b",
+        taskRef: "day-3",
+        createdAt: expect.any(String),
+        evidenceCount: 2,
+      },
+    ]);
+
+    const turns = await partner.query<{ count: number }>(
+      `MATCH (:Session)-[:HAS_TURN]->(t:Turn) WHERE t.userId = $userId RETURN count(t) AS count`,
+      { userId: "user-mcp" },
+    );
+    expect(turns[0]?.count).toBe(2);
+  });
+
+  it("recalls nothing, with a hint, before anything is remembered", async () => {
+    const outcome = await call("nexus_recall", {});
+    expect(outcome.isError).toBe(false);
+    expect(outcome.body).toMatchObject({ totals: { facts: 0, procedures: 0, handoffs: 0 }, facts: [] });
+    expect(String(outcome.body.hint)).toMatch(/nexus_remember/);
+  });
+
+  it("rejects a malformed memory write and an out-of-range recall", async () => {
+    expect((await call("nexus_remember", { kind: "procedure", name: "no steps" })).isError).toBe(true);
+    expect((await call("nexus_remember", { kind: "fact" })).isError).toBe(true);
+    expect((await call("nexus_remember", { text: "a fact", aboutSymbolId: "missing" })).isError).toBe(true);
+    expect((await call("nexus_recall", { limit: 13 })).isError).toBe(true);
+    expect((await call("nexus_handoff", {})).isError).toBe(true);
   });
 
   it("answers locate with graphVersion 0 and a hint before the repository is indexed", async () => {

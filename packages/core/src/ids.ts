@@ -44,3 +44,28 @@ export function symbolId(
 export function contentHash(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
+
+/** One session per agent process start, per user and repository. */
+export function sessionId(repoId: string, userId: string, agentId: string, startedAt: string): string {
+  return sha256(["session", repoId, userId, agentId, startedAt]);
+}
+
+/** Turn ids are readable because they double as the session's activity log. */
+export function turnId(sessionIdValue: string, ordinal: number): string {
+  return `${sessionIdValue}#${ordinal}`;
+}
+
+/** Facts are keyed by their text, so remembering the same fact again updates it. */
+export function factId(repoId: string, userId: string, text: string): string {
+  return sha256(["fact", repoId, userId, text.trim()]);
+}
+
+/** Procedures are keyed by name, so a better version of a procedure replaces the old one. */
+export function procedureId(repoId: string, userId: string, name: string): string {
+  return sha256(["procedure", repoId, userId, name.trim().toLowerCase()]);
+}
+
+/** One handoff per task per session; writing it again revises it. */
+export function handoffId(sessionIdValue: string, taskRef: string | undefined): string {
+  return sha256(["handoff", sessionIdValue, taskRef?.trim() || "default"]);
+}

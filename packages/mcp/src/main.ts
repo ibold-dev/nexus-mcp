@@ -21,7 +21,13 @@ try {
   process.exit(1);
 }
 
-const server = createNexusServer({ client, root, projectSalt });
+const server = createNexusServer({
+  client,
+  root,
+  projectSalt,
+  userId: process.env.NEXUS_USER ?? "local",
+  agentId: process.env.NEXUS_AGENT ?? "nexus-agent",
+});
 
 const shutdown = async (): Promise<void> => {
   await server.close();

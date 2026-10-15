@@ -4,17 +4,22 @@ import {
   findImpact,
   findSymbolPaths,
   getSymbolContext,
+  getSymbolRef,
   GraphRepository,
+  MemoryStore,
   normalizeRootPath,
   PATH_DIRECTIONS,
+  FACT_SCOPES,
   MAX_IMPACT_DEPTH,
   MAX_IMPACT_RESULTS,
   MAX_PATH_DEPTH,
   MAX_PATHS,
+  MEMORY_KINDS,
   repositoryId,
   SYMBOL_KINDS,
   symbolSearchText,
   type GraphClient,
+  type SessionRecord,
   type SymbolKind,
 } from "@nexus/core";
 import { RepositoryAnalyzer } from "@nexus/parser-ts";
@@ -23,12 +28,26 @@ import { syncRepository } from "@nexus/indexer";
 export const MAX_RESULTS = 8;
 const MAX_LISTED_PATHS = 50;
 const MAX_LISTED_FAILURES = 20;
+const MAX_RECALL_LIMIT = 12;
+const RECALL_DEFAULT = 6;
+const MAX_FACT_CHARS = 400;
+const MAX_STEP_CHARS = 200;
+const MAX_LISTED_STEPS = 8;
+const MAX_SUMMARY_CHARS = 500;
+const MAX_TURN_CHARS = 300;
 
 export interface NexusServerOptions {
   client: GraphClient;
   root: string;
   projectSalt: string;
   analyzer?: RepositoryAnalyzer;
+  /** Who the memory layer belongs to. Memory is never shared across users. */
+  userId?: string;
+  agentId?: string;
+}
+
+function truncate(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 }
 
 type ToolResult = {
@@ -59,9 +78,37 @@ function whyMatched(query: string, qualifiedName: string): string {
 export function createNexusServer(options: NexusServerOptions): McpServer {
   const root = normalizeRootPath(options.root);
   const repoId = repositoryId(root, options.projectSalt);
+  const userId = options.userId ?? "local";
+  const agentId = options.agentId ?? "nexus-agent";
   const repository = new GraphRepository(options.client);
+  const memory = new MemoryStore(options.client);
   const analyzer = options.analyzer ?? new RepositoryAnalyzer(repoId);
   let syncQueue: Promise<unknown> = Promise.resolve();
+  let sessionPromise: Promise<SessionRecord> | undefined;
+
+  /**
+   * The session is created on the first memory write, so a read-only run never
+   * writes anything. Everything this process remembers hangs off it.
+   */
+  function currentSession(): Promise<SessionRecord> {
+    sessionPromise ??= (async () => {
+      await memory.ensureIndexes();
+      return memory.startSession({ userId, repoId, agentId });
+    })();
+    return sessionPromise;
+  }
+
+  async function recordTurn(sessionId: string, text: string, tool: string, graphVersion: number): Promise<void> {
+    await memory.recordTurn({
+      sessionId,
+      userId,
+      repoId,
+      role: "tool",
+      text: truncate(text, MAX_TURN_CHARS),
+      tool,
+      graphVersion,
+    });
+  }
 
   const server = new McpServer({ name: "nexus", version: "0.1.0" });
 
@@ -235,6 +282,188 @@ export function createNexusServer(options: NexusServerOptions): McpServer {
           resolution: caller.resolution,
           confidence: caller.confidence,
         })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "nexus_remember",
+    {
+      title: "Remember what you learned",
+      description:
+        "Write a fact or a procedure into the graph so a later session, or another agent, can recall it. A fact is a statement worth keeping, optionally tied to a symbol. A procedure is a name and ordered steps that worked. Remembering the same fact text again revises it, and a procedure with the same name replaces the earlier one.",
+      inputSchema: {
+        text: z.string().min(1).max(2000).optional(),
+        kind: z.enum(["fact", "procedure"]).default("fact"),
+        name: z.string().min(1).max(200).optional(),
+        steps: z.array(z.string().min(1).max(500)).min(1).max(20).optional(),
+        scope: z.enum(FACT_SCOPES).optional(),
+        confidence: z.number().min(0).max(1).optional(),
+        aboutSymbolId: z.string().min(1).optional(),
+        appliesToPath: z.string().min(1).optional(),
+      },
+    },
+    async ({ kind, text, name, steps, scope, confidence, aboutSymbolId, appliesToPath }) => {
+      const state = await repository.getRepositoryState(repoId);
+      const session = await currentSession();
+
+      if (kind === "procedure") {
+        if (name === undefined || steps === undefined) {
+          return failure('kind "procedure" needs a name and at least one step.');
+        }
+        const procedure = await memory.rememberProcedure({
+          userId,
+          repoId,
+          sessionId: session.sessionId,
+          name,
+          steps,
+          ...(appliesToPath === undefined ? {} : { appliesToPath }),
+        });
+        await recordTurn(session.sessionId, `${name}: ${steps.join(" | ")}`, "nexus_remember", state.graphVersion);
+        return json({
+          graphVersion: state.graphVersion,
+          indexedAt: state.indexedAt,
+          sessionId: session.sessionId,
+          kind: "procedure",
+          procedureId: procedure.procedureId,
+          name: procedure.name,
+          stepCount: procedure.stepCount,
+          appliesTo: procedure.appliesTo,
+          note: "A later session recalls this with nexus_recall, for the same user and repository.",
+        });
+      }
+
+      if (text === undefined) {
+        return failure('kind "fact" needs text.');
+      }
+      if (aboutSymbolId !== undefined) {
+        const symbol = await getSymbolRef(options.client, repoId, aboutSymbolId);
+        if (!symbol) {
+          return failure("aboutSymbolId is not a symbol in this repository. Use nexus_locate to find one.");
+        }
+      }
+      const fact = await memory.rememberFact({
+        userId,
+        repoId,
+        sessionId: session.sessionId,
+        text,
+        ...(scope === undefined ? {} : { scope }),
+        ...(confidence === undefined ? {} : { confidence }),
+        ...(aboutSymbolId === undefined ? {} : { aboutSymbolId }),
+      });
+      await recordTurn(session.sessionId, text, "nexus_remember", state.graphVersion);
+      return json({
+        graphVersion: state.graphVersion,
+        indexedAt: state.indexedAt,
+        sessionId: session.sessionId,
+        kind: "fact",
+        factId: fact.factId,
+        scope: fact.scope,
+        confidence: fact.confidence,
+        aboutSymbolId: aboutSymbolId ?? null,
+        note: "A later session recalls this with nexus_recall, for the same user and repository.",
+      });
+    },
+  );
+
+  server.registerTool(
+    "nexus_recall",
+    {
+      title: "Recall what was learned",
+      description:
+        "Read back facts, procedures, and handoffs written by earlier sessions of this user and repository, inside or outside this process. With a query it ranks by relevance, without one it returns the most recent. Recalling raises the use count of what it returns, so the graph records how memory is being used.",
+      inputSchema: {
+        query: z.string().max(200).optional(),
+        include: z.array(z.enum(MEMORY_KINDS)).min(1).optional(),
+        limit: z.number().int().min(1).max(MAX_RECALL_LIMIT).default(RECALL_DEFAULT),
+      },
+    },
+    async ({ query, include, limit }) => {
+      const state = await repository.getRepositoryState(repoId);
+      const recalled = await memory.recall({
+        userId,
+        repoId,
+        limit,
+        ...(query === undefined ? {} : { query }),
+        ...(include === undefined ? {} : { include }),
+      });
+
+      return json({
+        graphVersion: state.graphVersion,
+        indexedAt: state.indexedAt,
+        query: query ?? null,
+        totals: recalled.totals,
+        facts: recalled.facts.map((fact) => ({
+          factId: fact.factId,
+          text: truncate(fact.text, MAX_FACT_CHARS),
+          scope: fact.scope,
+          confidence: fact.confidence,
+          usedCount: fact.usedCount,
+          updatedAt: fact.updatedAt,
+          about: fact.about,
+        })),
+        procedures: recalled.procedures.map((procedure) => ({
+          procedureId: procedure.procedureId,
+          name: procedure.name,
+          steps: procedure.steps.slice(0, MAX_LISTED_STEPS).map((step) => truncate(step, MAX_STEP_CHARS)),
+          stepCount: procedure.stepCount,
+          usedCount: procedure.usedCount,
+          updatedAt: procedure.updatedAt,
+          appliesTo: procedure.appliesTo,
+        })),
+        handoffs: recalled.handoffs.map((handoff) => ({
+          handoffId: handoff.handoffId,
+          summary: truncate(handoff.summary, MAX_SUMMARY_CHARS),
+          fromAgent: handoff.fromAgent,
+          toAgent: handoff.toAgent,
+          taskRef: handoff.taskRef,
+          createdAt: handoff.createdAt,
+          evidenceCount: handoff.evidenceCount,
+        })),
+        ...(recalled.facts.length === 0 && recalled.procedures.length === 0 && recalled.handoffs.length === 0
+          ? { hint: "Nothing remembered yet for this user and repository. Write with nexus_remember." }
+          : {}),
+      });
+    },
+  );
+
+  server.registerTool(
+    "nexus_handoff",
+    {
+      title: "Hand this session over",
+      description:
+        "Write a handoff for the next agent or session: what was done, what is left, and what to watch out for. The turns of this session are attached as evidence. The next session reads it with nexus_recall.",
+      inputSchema: {
+        summary: z.string().min(1).max(2000),
+        toAgent: z.string().min(1).max(100).optional(),
+        taskRef: z.string().min(1).max(200).optional(),
+      },
+    },
+    async ({ summary, toAgent, taskRef }) => {
+      const state = await repository.getRepositoryState(repoId);
+      const session = await currentSession();
+      const turns = await memory.listTurns(session.sessionId, userId);
+      const handoff = await memory.writeHandoff({
+        userId,
+        repoId,
+        sessionId: session.sessionId,
+        fromAgent: agentId,
+        summary,
+        evidenceTurnIds: turns.map((turn) => turn.turnId),
+        ...(toAgent === undefined ? {} : { toAgent }),
+        ...(taskRef === undefined ? {} : { taskRef }),
+      });
+
+      return json({
+        graphVersion: state.graphVersion,
+        indexedAt: state.indexedAt,
+        handoffId: handoff.handoffId,
+        sessionId: session.sessionId,
+        fromAgent: agentId,
+        toAgent: toAgent ?? null,
+        taskRef: taskRef ?? null,
+        evidenceTurns: turns.length,
+        note: "The next session reads this with nexus_recall, for the same user and repository.",
       });
     },
   );
