@@ -1,11 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  findImpact,
   findSymbolPaths,
   getSymbolContext,
   GraphRepository,
   normalizeRootPath,
   PATH_DIRECTIONS,
+  MAX_IMPACT_DEPTH,
+  MAX_IMPACT_RESULTS,
   MAX_PATH_DEPTH,
   MAX_PATHS,
   repositoryId,
@@ -182,6 +185,56 @@ export function createNexusServer(options: NexusServerOptions): McpServer {
         ...(paths.length === 0
           ? { hint: `No call path within ${maxDepth} hops going ${direction}. Try direction "both" or a larger maxDepth.` }
           : {}),
+      });
+    },
+  );
+
+  server.registerTool(
+    "nexus_impact",
+    {
+      title: "Likely impact of a symbol",
+      description:
+        "List the symbols that call this one, directly or through other symbols, nearest first, with the files they live in. Use it to judge what a change might touch and which tests to run. This is a map of likely impact built from indexed call edges, not a guarantee that any listed caller changes.",
+      inputSchema: {
+        symbolId: z.string().min(1),
+        maxDepth: z.number().int().min(1).max(MAX_IMPACT_DEPTH).default(3),
+        limit: z.number().int().min(1).max(MAX_IMPACT_RESULTS).default(12),
+      },
+    },
+    async ({ symbolId, maxDepth, limit }) => {
+      const state = await repository.getRepositoryState(repoId);
+      const impact = await findImpact(options.client, repoId, symbolId, { maxDepth, limit });
+      if (!impact) {
+        return failure("Symbol not found in this repository. Use nexus_locate to find a symbolId.");
+      }
+
+      return json({
+        graphVersion: state.graphVersion,
+        indexedAt: state.indexedAt,
+        maxDepth,
+        symbol: {
+          symbolId: impact.symbol.symbolId,
+          qualifiedName: impact.symbol.qualifiedName,
+          kind: impact.symbol.kind,
+          path: impact.symbol.path,
+          startLine: impact.symbol.startLine,
+          endLine: impact.symbol.endLine,
+        },
+        disclaimer: "Likely impact from indexed call edges. Not a guarantee that these callers change.",
+        totalCallers: impact.totalCallers,
+        truncated: impact.truncated,
+        files: impact.files,
+        callers: impact.callers.map((caller) => ({
+          symbolId: caller.symbolId,
+          qualifiedName: caller.qualifiedName,
+          kind: caller.kind,
+          path: caller.path,
+          startLine: caller.startLine,
+          hops: caller.hops,
+          via: caller.via,
+          resolution: caller.resolution,
+          confidence: caller.confidence,
+        })),
       });
     },
   );

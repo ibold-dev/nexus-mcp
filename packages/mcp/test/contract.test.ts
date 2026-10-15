@@ -75,10 +75,11 @@ describe("Nexus MCP server contract", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("exposes exactly the four tools with validated inputs", async () => {
+  it("exposes exactly the five tools with validated inputs", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       "nexus_context",
+      "nexus_impact",
       "nexus_locate",
       "nexus_path",
       "nexus_sync",
@@ -93,6 +94,10 @@ describe("Nexus MCP server contract", () => {
       "maxDepth",
       "maxPaths",
     ]);
+    const impact = tools.find((tool) => tool.name === "nexus_impact");
+    expect(Object.keys(impact?.inputSchema.properties ?? {})).toEqual(["symbolId", "maxDepth", "limit"]);
+    // The wording matters: impact is a likely map, never a promise.
+    expect(String(impact?.description)).toMatch(/not a guarantee/);
   });
 
   it("answers locate with graphVersion 0 and a hint before the repository is indexed", async () => {
@@ -209,6 +214,46 @@ describe("Nexus MCP server contract", () => {
     expect((await call("nexus_path", { from: runId, to: "missing" })).isError).toBe(true);
     expect((await call("nexus_path", { from: runId, to: "missing", maxDepth: 0 })).isError).toBe(true);
     expect((await call("nexus_path", { from: runId, to: "missing", maxDepth: 9 })).isError).toBe(true);
+  });
+
+  it("maps the likely impact of a symbol to the callers that reach it", async () => {
+    await write(root, "src/b.ts", `import { deeper } from "./c";\nexport function helper() { return deeper(); }\n`);
+    await write(root, "src/c.ts", `export function deeper() { return 1; }\n`);
+    await call("nexus_sync");
+    const deeperId = await locateId("deeper");
+
+    const outcome = await call("nexus_impact", { symbolId: deeperId, maxDepth: 3 });
+
+    expect(outcome.isError).toBe(false);
+    expect(outcome.body).toMatchObject({
+      graphVersion: 1,
+      maxDepth: 3,
+      totalCallers: 2,
+      truncated: false,
+      symbol: { qualifiedName: "deeper", path: "src/c.ts" },
+      files: ["src/a.ts", "src/b.ts"],
+    });
+    expect(String(outcome.body.disclaimer)).toMatch(/not a guarantee/i);
+    const callers = outcome.body.callers as { qualifiedName: string; hops: number; via: string | null }[];
+    expect(callers.map((caller) => [caller.qualifiedName, caller.hops, caller.via])).toEqual([
+      ["helper", 1, null],
+      ["run", 2, "helper"],
+    ]);
+    expect(outcome.text.length).toBeLessThan(MAX_RESPONSE_CHARS);
+  });
+
+  it("respects the impact depth and limit, and rejects an unknown symbol", async () => {
+    await write(root, "src/b.ts", `import { deeper } from "./c";\nexport function helper() { return deeper(); }\n`);
+    await write(root, "src/c.ts", `export function deeper() { return 1; }\n`);
+    await call("nexus_sync");
+    const deeperId = await locateId("deeper");
+
+    const shallow = await call("nexus_impact", { symbolId: deeperId, maxDepth: 1, limit: 1 });
+    expect(shallow.body).toMatchObject({ totalCallers: 1, files: ["src/b.ts"] });
+
+    expect((await call("nexus_impact", { symbolId: "missing" })).isError).toBe(true);
+    expect((await call("nexus_impact", { symbolId: deeperId, limit: 26 })).isError).toBe(true);
+    expect((await call("nexus_impact", { symbolId: deeperId, maxDepth: 5 })).isError).toBe(true);
   });
 
   it("reports an error for an unknown symbol and for out-of-budget arguments", async () => {

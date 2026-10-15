@@ -71,6 +71,136 @@ export interface SymbolPathsResult {
   paths: SymbolPath[];
 }
 
+export const MAX_IMPACT_DEPTH = 4;
+export const MAX_IMPACT_RESULTS = 25;
+/** Caps the paths the database enumerates, so a hub symbol cannot run away. */
+const IMPACT_ENUMERATION_LIMIT = 5_000;
+
+export interface ImpactCaller extends SymbolRef {
+  /** Shortest number of call edges from this caller to the symbol. */
+  hops: number;
+  resolution: Resolution;
+  confidence: number;
+  /** The symbol this caller calls on the best path, or null when it calls the symbol directly. */
+  via: string | null;
+}
+
+export interface SymbolImpact {
+  symbol: SymbolRef;
+  callers: ImpactCaller[];
+  files: string[];
+  /** True when the database stopped enumerating paths before exhausting them. */
+  truncated: boolean;
+  totalCallers: number;
+}
+
+export interface ImpactOptions {
+  maxDepth: number;
+  limit: number;
+}
+
+function assertImpactBounds(options: ImpactOptions): void {
+  if (!Number.isInteger(options.maxDepth) || options.maxDepth < 1 || options.maxDepth > MAX_IMPACT_DEPTH) {
+    throw new Error(`maxDepth must be an integer from 1 to ${MAX_IMPACT_DEPTH}`);
+  }
+  if (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > MAX_IMPACT_RESULTS) {
+    throw new Error(`limit must be an integer from 1 to ${MAX_IMPACT_RESULTS}`);
+  }
+}
+
+interface CallerRow {
+  symbolId: string;
+  name: string;
+  qualifiedName: string;
+  kind: SymbolKind;
+  signature: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+  names: string[];
+  confidences: number[];
+  resolutions: Resolution[];
+}
+
+/**
+ * Symbols that reach the given symbol along call edges, nearest first. This is
+ * a map of likely impact built from call edges the index could resolve, not a
+ * guarantee that changing the symbol changes the caller.
+ */
+export async function findImpact(
+  client: GraphClient,
+  repoId: string,
+  symbolId: string,
+  options: ImpactOptions,
+): Promise<SymbolImpact | undefined> {
+  assertImpactBounds(options);
+  const symbol = await getSymbolRef(client, repoId, symbolId);
+  if (!symbol) {
+    return undefined;
+  }
+
+  const rows = await client.query<CallerRow>(
+    `MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(:File)-[:CONTAINS]->(s:Symbol {id: $symbolId})
+     MATCH p = (caller:Symbol)-[:POSSIBLY_CALLS*1..${options.maxDepth}]->(s)
+     MATCH (g:File)-[:CONTAINS]->(caller)
+     MATCH (:Repository {id: $repoId})-[:HAS_FILE]->(g)
+     RETURN caller.id AS symbolId, caller.name AS name, caller.qualifiedName AS qualifiedName,
+            caller.kind AS kind, caller.signature AS signature, g.path AS path,
+            caller.startLine AS startLine, caller.endLine AS endLine,
+            [n IN nodes(p) | n.qualifiedName] AS names,
+            [r IN relationships(p) | r.confidence] AS confidences,
+            [r IN relationships(p) | r.resolution] AS resolutions
+     LIMIT ${IMPACT_ENUMERATION_LIMIT}`,
+    { repoId, symbolId },
+  );
+
+  const best = new Map<string, ImpactCaller>();
+  for (const row of rows) {
+    const hops = row.names.length - 1;
+    if (hops < 1 || row.symbolId === symbolId) {
+      continue;
+    }
+    const confidence = round4(row.confidences.reduce((product, value) => product * value, 1));
+    const resolution: Resolution = row.resolutions.includes("heuristic") ? "heuristic" : "resolved";
+    const candidate: ImpactCaller = {
+      symbolId: row.symbolId,
+      name: row.name,
+      qualifiedName: row.qualifiedName,
+      kind: row.kind,
+      signature: row.signature,
+      path: row.path,
+      startLine: row.startLine,
+      endLine: row.endLine,
+      hops,
+      resolution,
+      confidence,
+      via: hops >= 2 ? (row.names[1] ?? null) : null,
+    };
+
+    const previous = best.get(candidate.symbolId);
+    if (
+      !previous ||
+      candidate.hops < previous.hops ||
+      (candidate.hops === previous.hops && candidate.confidence > previous.confidence)
+    ) {
+      best.set(candidate.symbolId, candidate);
+    }
+  }
+
+  const callers = [...best.values()].sort(
+    (a, b) => a.hops - b.hops || b.confidence - a.confidence || a.qualifiedName.localeCompare(b.qualifiedName),
+  );
+  const files = [...new Set(callers.slice(0, options.limit).map((caller) => caller.path))].sort();
+
+  return {
+    symbol,
+    callers: callers.slice(0, options.limit),
+    files,
+    truncated: rows.length >= IMPACT_ENUMERATION_LIMIT,
+    totalCallers: callers.length,
+  };
+}
+
 export interface PathOptions {
   direction: PathDirection;
   maxDepth: number;
