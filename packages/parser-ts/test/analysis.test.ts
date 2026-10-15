@@ -95,6 +95,34 @@ describe("analyzeRepository call edges", () => {
     expect(fileNamed(results, "src/a.ts").calls).toEqual([]);
   });
 
+  it("names the enclosing function rather than the local that holds the result", () => {
+    // Found by running the agent over this repository: every caller of
+    // syncRepository came back as `result`, because a `const` sits between the
+    // call and the function holding it. A reader asking who calls a function
+    // wants the function, not the variable it was assigned to.
+    const results = analyze([
+      {
+        relativePath: "src/a.ts",
+        content: `function helper(): number { return 1; }\nexport function run(): number {\n  const total = helper();\n  return total;\n}\n`,
+      },
+    ]);
+    expect(fileNamed(results, "src/a.ts").calls[0]?.fromSymbolId).toBe(
+      idOf(results, "src/a.ts", "run"),
+    );
+  });
+
+  it("still falls back to a local when no function encloses the call", () => {
+    const results = analyze([
+      {
+        relativePath: "src/a.ts",
+        content: `function helper(): number { return 1; }\nconst total = helper();\n`,
+      },
+    ]);
+    expect(fileNamed(results, "src/a.ts").calls[0]?.fromSymbolId).toBe(
+      idOf(results, "src/a.ts", "total"),
+    );
+  });
+
   it("creates no edge for calls into external or built-in code", () => {
     const results = analyze([
       {

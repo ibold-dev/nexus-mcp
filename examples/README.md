@@ -24,7 +24,9 @@ docker compose up -d falkordb
 
 ## What the client gets
 
-Eight tools, and a first call that indexes the repository if it never has:
+Eight tools. Reads never index: an empty graph is reported as empty, with a hint
+pointing at `nexus_sync`, so an agent syncs rather than concluding the symbol does
+not exist.
 
 1. `nexus_sync` — index or re-index the repository; incremental after the first run.
 2. `nexus_locate` — find a symbol by name, doc, or signature.

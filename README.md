@@ -70,12 +70,18 @@ the other providers and how the scripted one works.
 The whole stack in Docker, FalkorDB and agent together:
 
 ```bash
-NEXUS_REPO=/path/to/some/repo docker compose up agent
+# The default pair is self-demonstrating: this repository, about its own sync.
+docker compose up agent
+
+# Point it at another repository and name a symbol in that repository.
+NEXUS_REPO=/path/to/some/repo NEXUS_SYMBOL=someFunction docker compose up agent
 ```
 
 `NEXUS_REPO` is mounted read-write into the container, because a sync writes one lock
 file at `.nexus/sync.lock` to serialise syncs against the same graph. Nothing else in
-the repository is touched.
+the repository is touched. Set `NEXUS_SYMBOL` whenever you set `NEXUS_REPO` — the two
+defaults belong to this repository, and asking about a symbol that is not in the mounted
+one gets an honest "no symbol matched" rather than a guess.
 
 ### Wiring it into a client
 
@@ -425,7 +431,7 @@ pnpm test        # vitest, against a live FalkorDB
 pnpm build
 ```
 
-174 tests across 18 files. Most of them run against a real FalkorDB, because the parts
+185 tests across 20 files. Most of them run against a real FalkorDB, because the parts
 worth testing are the Cypher and the graph behaviour, and a mock would test the mock. The
 suite covers the parser against real TypeScript, sync idempotence and per-file isolation,
 the two-connection handoff (two independent clients against one graph, which is the whole

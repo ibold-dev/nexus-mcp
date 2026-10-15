@@ -48,12 +48,19 @@ export function benchTasks(): BenchTask[] {
         ],
         report: (context) => {
           const impact = reportFrom(context, "nexus_impact") as
-            | { callers?: { qualifiedName: string }[]; files?: string[] }
+            | { callers?: { qualifiedName: string }[]; files?: string[]; totalCallers?: number }
             | undefined;
           const callers = impact?.callers ?? [];
           const files = impact?.files ?? [];
+          const total = impact?.totalCallers ?? callers.length;
+          // The impact tool pages its answer. Printing the page as the total is
+          // the one way this task could quietly overstate what the graph said.
+          const headline =
+            total > callers.length
+              ? `${total} caller(s), ${callers.length} shown, in ${files.length} file(s).`
+              : `${total} caller(s) in ${files.length} file(s).`;
           return [
-            `${callers.length} caller(s) in ${files.length} file(s).`,
+            headline,
             `Files: ${files.join(", ")}`,
             `Callers: ${callers.map((caller) => caller.qualifiedName).join(", ")}`,
           ].join("\n");

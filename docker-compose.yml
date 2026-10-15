@@ -1,7 +1,8 @@
 # The whole stack: FalkorDB, and the agent pointed at a repository you mount.
 #
 #   docker compose up -d falkordb
-#   NEXUS_REPO=/path/to/your/repo docker compose up agent
+#   docker compose up agent                      # this repository, about syncRepository
+#   NEXUS_REPO=/path/to/repo NEXUS_SYMBOL=foo docker compose up agent
 #
 # NEXUS_REPO is mounted read-write because a sync writes one lock file at
 # .nexus/sync.lock to serialise syncs against the same graph. Nothing else in

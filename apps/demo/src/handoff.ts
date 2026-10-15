@@ -117,14 +117,17 @@ const write = async (client: Client): Promise<void> => {
   const impact = await call(client, "nexus_impact", { symbolId: symbol.symbolId, maxDepth: 3 });
   const callers = (impact.callers as { qualifiedName: string }[] | undefined) ?? [];
   const files = (impact.files as string[] | undefined) ?? [];
+  // The tool pages its answer, so a page must not be printed as a total.
+  const total = (impact.totalCallers as number | undefined) ?? callers.length;
+  const scope = callers.length < total ? `${total} (first ${callers.length} shown)` : `${total}`;
   process.stdout.write(
-    `[write] ${symbol.qualifiedName} (${symbol.path}) has ${callers.length} likely callers in ${files.length} files\n`,
+    `[write] ${symbol.qualifiedName} (${symbol.path}) has ${scope} likely callers in ${files.length} files\n`,
   );
 
   const impactLine =
     callers.length === 0
       ? `Nothing in the indexed graph calls ${symbol.qualifiedName} yet.`
-      : `Changing ${symbol.qualifiedName} in ${symbol.path} likely reaches ${callers.length} caller(s) across ${files.length} file(s): ${callers
+      : `Changing ${symbol.qualifiedName} in ${symbol.path} likely reaches ${scope} caller(s) across ${files.length} file(s): ${callers
           .slice(0, 3)
           .map((caller) => caller.qualifiedName)
           .join(", ")}.`;

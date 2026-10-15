@@ -155,6 +155,7 @@ export class RepositoryAnalyzer {
     }
 
     const symbolByDeclaration = new Map<string, string>();
+    const callableDeclarations = new Set<string>();
     const callableIdsByName = new Map<string, string[]>();
     const relativeByAbsolute = new Map<string, string>();
     for (const entry of this.cache.values()) {
@@ -164,8 +165,10 @@ export class RepositoryAnalyzer {
         if (!symbol) {
           return;
         }
-        symbolByDeclaration.set(declarationKey(entry.absolutePath, draft.node.getStart()), symbol.id);
+        const key = declarationKey(entry.absolutePath, draft.node.getStart());
+        symbolByDeclaration.set(key, symbol.id);
         if (isCallable(draft.kind)) {
+          callableDeclarations.add(key);
           const bucket = callableIdsByName.get(draft.name) ?? [];
           bucket.push(symbol.id);
           callableIdsByName.set(draft.name, bucket);
@@ -214,7 +217,13 @@ export class RepositoryAnalyzer {
         continue;
       }
       try {
-        const result = collectCalls(entry.file, entry.absolutePath, symbolByDeclaration, callableIdsByName);
+        const result = collectCalls(
+          entry.file,
+          entry.absolutePath,
+          symbolByDeclaration,
+          callableIdsByName,
+          callableDeclarations,
+        );
         entry.calls = result.edges;
         entry.callErrors = result.errors;
         entry.heuristicNames = result.heuristicNames;

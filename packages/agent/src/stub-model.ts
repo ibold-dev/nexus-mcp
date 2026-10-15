@@ -208,27 +208,36 @@ export function defaultStubScript(symbolName: string): StubScript {
 function impact(context: StubContext): {
   callers: { qualifiedName: string; path: string; hops: number; resolution: string }[];
   files: string[];
+  total: number;
+  truncated: boolean;
 } {
   const value = lastResult(context, "nexus_impact") as
     | {
         callers?: { qualifiedName?: string; path?: string; hops?: number; resolution?: string }[];
         files?: string[];
+        totalCallers?: number;
+        truncated?: boolean;
       }
     | undefined;
+  const callers = (value?.callers ?? []).map((caller) => ({
+    qualifiedName: caller.qualifiedName ?? "(unknown)",
+    path: caller.path ?? "(unknown)",
+    hops: caller.hops ?? 0,
+    resolution: caller.resolution ?? "unknown",
+  }));
+  const total = value?.totalCallers ?? callers.length;
   return {
-    callers: (value?.callers ?? []).map((caller) => ({
-      qualifiedName: caller.qualifiedName ?? "(unknown)",
-      path: caller.path ?? "(unknown)",
-      hops: caller.hops ?? 0,
-      resolution: caller.resolution ?? "unknown",
-    })),
+    callers,
     files: value?.files ?? [],
+    total,
+    // The tool pages its answer. A count that is a page must not read as a total.
+    truncated: value?.truncated === true || callers.length < total,
   };
 }
 
 function impactSentence(context: StubContext, fallbackName: string): string {
   const symbol = locatedSymbol(context, fallbackName);
-  const { callers, files } = impact(context);
+  const { callers, files, total, truncated } = impact(context);
   if (callers.length === 0) {
     return `Nothing in the indexed graph calls ${symbol.qualifiedName} yet.`;
   }
@@ -236,12 +245,13 @@ function impactSentence(context: StubContext, fallbackName: string): string {
     .slice(0, 3)
     .map((caller) => caller.qualifiedName)
     .join(", ");
-  return `Changing ${symbol.qualifiedName} (${symbol.path}) likely reaches ${callers.length} caller(s) in ${files.length} file(s): ${names}.`;
+  const scope = truncated ? `${total} caller(s), ${callers.length} shown` : `${total} caller(s)`;
+  return `Changing ${symbol.qualifiedName} (${symbol.path}) likely reaches ${scope} in ${files.length} file(s): ${names}.`;
 }
 
 function reportText(context: StubContext, fallbackName: string): string {
   const symbol = locatedSymbol(context, fallbackName);
-  const { callers, files } = impact(context);
+  const { callers, files, total, truncated } = impact(context);
   const remembered = lastResult(context, "nexus_recall") as
     | { totals?: { facts?: number; procedures?: number; handoffs?: number } }
     | undefined;
@@ -257,7 +267,9 @@ function reportText(context: StubContext, fallbackName: string): string {
     callers.length === 0
       ? "Nothing in the indexed graph calls this symbol, so the graph offers no callers to inspect."
       : [
-          `${callers.length} likely caller(s) in ${files.length} file(s):`,
+          truncated
+            ? `Showing ${callers.length} of ${total} likely caller(s), across ${files.length} file(s) in this list:`
+            : `${total} likely caller(s) in ${files.length} file(s):`,
           "",
           ...callers.map(
             (caller) =>
@@ -273,5 +285,8 @@ function reportText(context: StubContext, fallbackName: string): string {
     "### Unknowns",
     "",
     "Call edges do not cross into dependencies, so anything reached through a third-party package is invisible here.",
+    ...(truncated
+      ? [`The impact list is paged, so the ${total - callers.length} caller(s) beyond this list are not shown.`]
+      : []),
   ].join("\n");
 }

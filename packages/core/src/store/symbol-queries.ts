@@ -89,8 +89,14 @@ export interface SymbolImpact {
   symbol: SymbolRef;
   callers: ImpactCaller[];
   files: string[];
-  /** True when the database stopped enumerating paths before exhausting them. */
+  /**
+   * True when `callers` is not the whole answer — because it was paged down to
+   * the caller's limit, or because the database stopped enumerating paths before
+   * exhausting them. A consumer that reports `callers.length` as a total is
+   * overstating the graph's answer unless this is false.
+   */
   truncated: boolean;
+  /** Distinct callers found. A floor, not a count, when `truncated` is true. */
   totalCallers: number;
 }
 
@@ -196,7 +202,9 @@ export async function findImpact(
     symbol,
     callers: callers.slice(0, options.limit),
     files,
-    truncated: rows.length >= IMPACT_ENUMERATION_LIMIT,
+    // Two ways to be incomplete: the caller asked for fewer than there are, or
+    // the enumeration hit its own ceiling and the total below is a floor.
+    truncated: callers.length > options.limit || rows.length >= IMPACT_ENUMERATION_LIMIT,
     totalCallers: callers.length,
   };
 }

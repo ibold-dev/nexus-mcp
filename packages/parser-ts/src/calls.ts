@@ -43,20 +43,37 @@ function resolveCalleeSymbol(callee: Node): TsSymbol | undefined {
   return symbol;
 }
 
+/**
+ * The symbol a call is attributed to: the nearest enclosing function when there
+ * is one, otherwise the nearest enclosing symbol of any kind.
+ *
+ * The preference matters for the question the graph exists to answer. In
+ * `function run() { const total = add(1, 2); }` the nearest symbol to the call
+ * is the local `total`, and reporting that as the caller of `add` names a
+ * variable instead of the function a reader would have to change. The nearest
+ * *callable* ancestor is walked for first, and a local is used only when there
+ * is no enclosing function to name.
+ */
 function enclosingSymbolId(
   call: Node,
   absolutePath: string,
   symbolByDeclaration: ReadonlyMap<string, string>,
+  callableDeclarations: ReadonlySet<string>,
 ): string | undefined {
+  let nearest: string | undefined;
   let current: Node | undefined = call.getParent();
   while (current && !Node.isSourceFile(current)) {
-    const id = symbolByDeclaration.get(declarationKey(absolutePath, current.getStart()));
+    const key = declarationKey(absolutePath, current.getStart());
+    const id = symbolByDeclaration.get(key);
     if (id !== undefined) {
-      return id;
+      if (callableDeclarations.has(key)) {
+        return id;
+      }
+      nearest ??= id;
     }
     current = current.getParent();
   }
-  return undefined;
+  return nearest;
 }
 
 /**
@@ -101,6 +118,7 @@ export function collectCalls(
   absolutePath: string,
   symbolByDeclaration: ReadonlyMap<string, string>,
   callableIdsByName: ReadonlyMap<string, readonly string[]>,
+  callableDeclarations: ReadonlySet<string> = new Set(),
 ): CallCollection {
   const seen = new Set<string>();
   const edges: CallEdge[] = [];
@@ -108,7 +126,7 @@ export function collectCalls(
   let errors = 0;
 
   for (const call of file.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    const fromSymbolId = enclosingSymbolId(call, absolutePath, symbolByDeclaration);
+    const fromSymbolId = enclosingSymbolId(call, absolutePath, symbolByDeclaration, callableDeclarations);
     if (fromSymbolId === undefined) {
       continue;
     }

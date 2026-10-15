@@ -129,6 +129,9 @@ describe("symbol impact queries against FalkorDB", () => {
     expect(impact?.callers[0]).toMatchObject({ qualifiedName: "other", hops: 1 });
     expect(impact?.totalCallers).toBe(3);
     expect(impact?.files).toEqual(["src/other.ts"]);
+    // One caller returned out of three found: the list is a page, and a caller
+    // that reports `callers.length` as the answer would say "1".
+    expect(impact?.truncated).toBe(true);
   });
 
   it("groups the affected files of the returned callers", async () => {
