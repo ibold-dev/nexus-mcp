@@ -10,17 +10,32 @@ import {
   type GraphClient,
   type ImportRecord,
 } from "@nexus/core";
-import { RepositoryAnalyzer, type CallEdge, type FileAnalysis, type FileImports, type SourceUpdate } from "@nexus/parser-ts";
+import {
+  RepositoryAnalyzer,
+  type AnalysisUpdate,
+  type CallEdge,
+  type FileAnalysis,
+  type FileImports,
+  type SourceUpdate,
+} from "@nexus/parser-ts";
 import { withRepositoryLock } from "./lock.js";
 import { collectSourceFiles, SOURCE_EXTENSIONS } from "./walk.js";
 
 export const SCHEMA_VERSION = 1;
 
+/**
+ * The slice of the analyzer that a sync needs. `RepositoryAnalyzer` satisfies
+ * it; callers can also supply their own.
+ */
+export interface RepositoryAnalyzerLike {
+  update(sources: readonly SourceUpdate[]): AnalysisUpdate;
+}
+
 export interface SyncOptions {
   client: GraphClient;
   root: string;
   projectSalt: string;
-  analyzer?: RepositoryAnalyzer;
+  analyzer?: RepositoryAnalyzerLike;
   now?: () => Date;
 }
 
@@ -139,6 +154,9 @@ async function runSync(options: SyncOptions, root: string, repoId: string): Prom
   const analyzer = options.analyzer ?? new RepositoryAnalyzer(repoId);
   const update = analyzer.update(sources);
   const analyses: FileAnalysis[] = update.analyses;
+  for (const failure of update.failures) {
+    failures.push({ path: failure.path, error: `${failure.error} (file left unindexed; retried next sync)` });
+  }
 
   const hashByPath = new Map(sources.map((source) => [source.relativePath, source.hash]));
   const changedFileIds = new Set<string>();

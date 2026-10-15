@@ -10,7 +10,7 @@ import {
   repositoryId,
   type GraphClient,
 } from "@nexus/core";
-import { RepositoryAnalyzer } from "@nexus/parser-ts";
+import { RepositoryAnalyzer, type SourceUpdate } from "@nexus/parser-ts";
 import { RepositoryLockedError, withRepositoryLock } from "../src/lock.js";
 import { syncRepository } from "../src/sync.js";
 
@@ -301,6 +301,47 @@ describe("syncRepository incremental behavior", () => {
     await write(root, "src/b.ts", `export function b() { return 2; }\n`);
     const edited = await syncRepository({ client, root, projectSalt: salt });
     expect(edited.graphVersion).toBe(2);
+  });
+
+  it("leaves a file that failed analysis untouched in the graph and retries it next sync", async () => {
+    const repoId = repositoryId(normalizeRootPath(root), salt);
+    const repository = new GraphRepository(client);
+    const real = new RepositoryAnalyzer(repoId);
+    await syncRepository({ client, root, projectSalt: salt, analyzer: real });
+    const first = await repository.getRepositoryState(repoId);
+    expect(first.indexedAt).not.toBeNull();
+
+    // src/b.ts gains a symbol, but the analyzer reports the file as failed and
+    // leaves it out of the analysis.
+    await write(root, "src/b.ts", `export function b() { return 1; }\nexport function dropped() { return 2; }\n`);
+    const failing = {
+      update: (sources: readonly SourceUpdate[]) => {
+        const result = real.update(sources);
+        return {
+          ...result,
+          analyses: result.analyses.filter((analysis) => analysis.relativePath !== "src/b.ts"),
+          failures: [{ path: "src/b.ts", error: "symbols: boom" }],
+        };
+      },
+    };
+
+    const blocked = await syncRepository({ client, root, projectSalt: salt, analyzer: failing });
+
+    expect(blocked.failures).toEqual([
+      { path: "src/b.ts", error: "symbols: boom (file left unindexed; retried next sync)" },
+    ]);
+    expect(blocked.filesWritten).toBe(0);
+    expect(blocked.graphVersion).toBe(first.graphVersion);
+    expect(blocked.indexedAt).toBe(first.indexedAt);
+    expect(await client.query("MATCH (s:Symbol {name: 'dropped'}) RETURN s")).toEqual([]);
+
+    // The next sync with a healthy analyzer picks the file up.
+    const recovered = await syncRepository({ client, root, projectSalt: salt, analyzer: real });
+
+    expect(recovered.failures).toEqual([]);
+    expect(recovered.changedPaths).toEqual(["src/b.ts"]);
+    expect(recovered.graphVersion).toBe(first.graphVersion + 1);
+    expect(await client.query("MATCH (s:Symbol {name: 'dropped'}) RETURN s")).toHaveLength(1);
   });
 
   it("refuses to run while another sync holds the lock", async () => {

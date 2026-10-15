@@ -1,5 +1,6 @@
-import { Node, SyntaxKind, type Symbol as TsSymbol, type SourceFile } from "ts-morph";
-import { contentHash, fileId, normalizeRelativePath, RESOLUTIONS, type Resolution } from "@nexus/core";
+import type { SourceFile } from "ts-morph";
+import { contentHash, fileId, normalizeRelativePath } from "@nexus/core";
+import { collectCalls, declarationKey, isCallable, type CallEdge } from "./calls.js";
 import { collectSymbolDrafts, toExtractedSymbols, type ExtractedSymbol, type SymbolDraft } from "./extract.js";
 import {
   collectFileImports,
@@ -8,14 +9,6 @@ import {
   type FileImports,
   type SourceInput,
 } from "./imports.js";
-
-export interface CallEdge {
-  fromSymbolId: string;
-  toSymbolId: string;
-  line: number;
-  resolution: Resolution;
-  confidence: number;
-}
 
 export interface FileAnalysis {
   fileId: string;
@@ -33,20 +26,21 @@ export interface SourceUpdate {
   hash: string;
 }
 
+/** A file whose analysis threw, named with the stage that failed. */
+export interface AnalysisFailure {
+  path: string;
+  error: string;
+}
+
 export interface AnalysisUpdate {
   analyses: FileAnalysis[];
   addedOrChanged: string[];
   removed: string[];
   recomputedCalls: string[];
+  failures: AnalysisFailure[];
 }
 
-export const HEURISTIC_CALL_CONFIDENCE = 0.5;
-
-interface Target {
-  toSymbolId: string;
-  resolution: Resolution;
-  confidence: number;
-}
+type Stage = "symbols" | "imports" | "calls";
 
 interface CachedFile {
   relativePath: string;
@@ -63,25 +57,13 @@ interface CachedFile {
   heuristicNames: Set<string>;
 }
 
-function declarationKey(absolutePath: string, start: number): string {
-  return `${absolutePath}\u0000${start}`;
-}
-
-function resolveCalleeSymbol(callee: Node): TsSymbol | undefined {
-  const symbol = callee.getSymbol();
-  if (symbol?.isAlias()) {
-    return symbol.getAliasedSymbol() ?? symbol;
-  }
-  return symbol;
-}
-
-function isCallable(kind: string): boolean {
-  return kind === "function" || kind === "method";
-}
-
 /**
  * Keeps one ts-morph project alive across syncs. Each update re-parses only
  * changed files and recomputes call edges only where a change can affect them.
+ *
+ * Analysis is isolated per file. If any stage throws, the failure is reported
+ * and the file is left out of `analyses` entirely, so nothing half-parsed is
+ * written and the next sync retries it from scratch.
  */
 export class RepositoryAnalyzer {
   private readonly project = createRepositoryProject();
@@ -101,6 +83,17 @@ export class RepositoryAnalyzer {
       .map((source) => source.relativePath)
       .sort();
     const removed = [...this.cache.keys()].filter((relativePath) => !incoming.has(relativePath)).sort();
+
+    const failures = new Map<string, string>();
+    const failed = new Set<string>();
+    const fail = (relativePath: string, stage: Stage, error: unknown): void => {
+      failed.add(relativePath);
+      if (failures.has(relativePath)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      failures.set(relativePath, `${stage}: ${message}`);
+    };
 
     const touchedSymbolIds = new Set<string>();
     const touchedNames = new Set<string>();
@@ -133,30 +126,32 @@ export class RepositoryAnalyzer {
       if (!source) {
         continue;
       }
-      const previous = this.cache.get(relativePath);
-      if (previous) {
-        this.project.removeSourceFile(previous.file);
-      }
-      const absolutePath = `/${relativePath}`;
-      const file = this.project.createSourceFile(absolutePath, source.content, { overwrite: true });
       const fileIdValue = fileId(this.repoId, relativePath);
-      const drafts = collectSymbolDrafts(file);
-      const symbols = toExtractedSymbols(fileIdValue, drafts);
-      touch(symbols);
-      this.cache.set(relativePath, {
-        relativePath,
-        absolutePath,
-        hash: source.hash,
-        file,
-        fileIdValue,
-        drafts,
-        symbols,
-        imports: { fileId: fileIdValue, relativePath, edges: [], unresolved: [] },
-        importsSignature: "",
-        calls: [],
-        callErrors: 0,
-        heuristicNames: new Set(),
-      });
+      const absolutePath = `/${relativePath}`;
+      let entry: CachedFile;
+      try {
+        const file = this.project.createSourceFile(absolutePath, source.content, { overwrite: true });
+        const drafts = collectSymbolDrafts(file);
+        entry = {
+          relativePath,
+          absolutePath,
+          hash: source.hash,
+          file,
+          fileIdValue,
+          drafts,
+          symbols: toExtractedSymbols(fileIdValue, drafts),
+          imports: { fileId: fileIdValue, relativePath, edges: [], unresolved: [] },
+          importsSignature: "",
+          calls: [],
+          callErrors: 0,
+          heuristicNames: new Set(),
+        };
+      } catch (error) {
+        fail(relativePath, "symbols", error);
+        continue;
+      }
+      touch(entry.symbols);
+      this.cache.set(relativePath, entry);
     }
 
     const symbolByDeclaration = new Map<string, string>();
@@ -181,12 +176,22 @@ export class RepositoryAnalyzer {
     const resolve = createModuleResolver(relativeByAbsolute.keys());
     const importsChanged = new Set<string>();
     for (const entry of this.cache.values()) {
-      const imports = collectFileImports(entry.file, this.repoId, entry.relativePath, resolve, relativeByAbsolute);
+      let imports: FileImports;
+      try {
+        imports = {
+          fileId: entry.fileIdValue,
+          relativePath: entry.relativePath,
+          ...collectFileImports(entry.file, this.repoId, entry.relativePath, resolve, relativeByAbsolute),
+        };
+      } catch (error) {
+        fail(entry.relativePath, "imports", error);
+        continue;
+      }
       const signature = JSON.stringify(imports);
       if (signature !== entry.importsSignature) {
         importsChanged.add(entry.relativePath);
       }
-      entry.imports = { fileId: entry.fileIdValue, relativePath: entry.relativePath, ...imports };
+      entry.imports = imports;
       entry.importsSignature = signature;
     }
 
@@ -202,15 +207,27 @@ export class RepositoryAnalyzer {
       }
     }
 
+    const recomputed = new Set<string>();
     for (const relativePath of dirty) {
       const entry = this.cache.get(relativePath);
-      if (!entry) {
+      if (!entry || failed.has(relativePath)) {
         continue;
       }
-      const result = collectCalls(entry.file, entry.absolutePath, symbolByDeclaration, callableIdsByName);
-      entry.calls = result.edges;
-      entry.callErrors = result.errors;
-      entry.heuristicNames = result.heuristicNames;
+      try {
+        const result = collectCalls(entry.file, entry.absolutePath, symbolByDeclaration, callableIdsByName);
+        entry.calls = result.edges;
+        entry.callErrors = result.errors;
+        entry.heuristicNames = result.heuristicNames;
+        recomputed.add(relativePath);
+      } catch (error) {
+        fail(relativePath, "calls", error);
+      }
+    }
+
+    // A file that failed any stage is dropped, so the next update re-analyzes
+    // it from scratch rather than trusting a half-built entry.
+    for (const relativePath of failed) {
+      this.cache.delete(relativePath);
     }
 
     const analyses: FileAnalysis[] = [...this.cache.values()]
@@ -229,7 +246,10 @@ export class RepositoryAnalyzer {
       analyses,
       addedOrChanged,
       removed,
-      recomputedCalls: [...dirty].sort(),
+      recomputedCalls: [...recomputed].sort(),
+      failures: [...failures]
+        .map(([path, error]) => ({ path, error }))
+        .sort((a, b) => a.path.localeCompare(b.path)),
     };
   }
 }
@@ -238,103 +258,4 @@ export function analyzeRepository(repoId: string, sources: readonly SourceInput[
   return new RepositoryAnalyzer(repoId).update(
     sources.map((source) => ({ ...source, hash: contentHash(source.content) })),
   ).analyses;
-}
-
-function enclosingSymbolId(
-  call: Node,
-  absolutePath: string,
-  symbolByDeclaration: ReadonlyMap<string, string>,
-): string | undefined {
-  let current: Node | undefined = call.getParent();
-  while (current && !Node.isSourceFile(current)) {
-    const id = symbolByDeclaration.get(declarationKey(absolutePath, current.getStart()));
-    if (id !== undefined) {
-      return id;
-    }
-    current = current.getParent();
-  }
-  return undefined;
-}
-
-function resolveTarget(
-  callee: Node,
-  symbolByDeclaration: ReadonlyMap<string, string>,
-  callableIdsByName: ReadonlyMap<string, readonly string[]>,
-): Target | undefined {
-  const symbol = resolveCalleeSymbol(callee);
-  if (symbol) {
-    for (const declaration of symbol.getDeclarations()) {
-      const id = symbolByDeclaration.get(
-        declarationKey(declaration.getSourceFile().getFilePath(), declaration.getStart()),
-      );
-      if (id !== undefined) {
-        return { toSymbolId: id, resolution: RESOLUTIONS.resolved, confidence: 1 };
-      }
-    }
-    return undefined;
-  }
-
-  if (!Node.isPropertyAccessExpression(callee)) {
-    return undefined;
-  }
-  const candidates = [...new Set(callableIdsByName.get(callee.getName()) ?? [])];
-  const [only] = candidates;
-  if (candidates.length !== 1 || only === undefined) {
-    return undefined;
-  }
-  return { toSymbolId: only, resolution: RESOLUTIONS.heuristic, confidence: HEURISTIC_CALL_CONFIDENCE };
-}
-
-interface CallCollection {
-  edges: CallEdge[];
-  errors: number;
-  heuristicNames: Set<string>;
-}
-
-function collectCalls(
-  file: SourceFile,
-  absolutePath: string,
-  symbolByDeclaration: ReadonlyMap<string, string>,
-  callableIdsByName: ReadonlyMap<string, readonly string[]>,
-): CallCollection {
-  const seen = new Set<string>();
-  const edges: CallEdge[] = [];
-  const heuristicNames = new Set<string>();
-  let errors = 0;
-
-  for (const call of file.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    const fromSymbolId = enclosingSymbolId(call, absolutePath, symbolByDeclaration);
-    if (fromSymbolId === undefined) {
-      continue;
-    }
-    const line = call.getStartLineNumber();
-    const callee = call.getExpression();
-    let target: Target | undefined;
-    try {
-      target = resolveTarget(callee, symbolByDeclaration, callableIdsByName);
-    } catch {
-      errors += 1;
-      continue;
-    }
-    if (target === undefined) {
-      continue;
-    }
-    if (target.resolution === RESOLUTIONS.heuristic && Node.isPropertyAccessExpression(callee)) {
-      heuristicNames.add(callee.getName());
-    }
-    const key = `${fromSymbolId}\u0000${target.toSymbolId}\u0000${line}\u0000${target.resolution}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    edges.push({
-      fromSymbolId,
-      toSymbolId: target.toSymbolId,
-      line,
-      resolution: target.resolution,
-      confidence: target.confidence,
-    });
-  }
-
-  return { edges, errors, heuristicNames };
 }
