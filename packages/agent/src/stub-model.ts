@@ -21,6 +21,12 @@ import {
 export interface StubStep {
   toolName: string;
   input: (context: StubContext) => unknown;
+  /**
+   * Text the model says alongside the tool call. Real models narrate while they
+   * work, and that narration is what a run stopped mid-loop returns as its text
+   * — which is how a run can have a non-empty answer and no report at all.
+   */
+  text?: string;
 }
 
 export interface StubToolResult {
@@ -66,15 +72,18 @@ export function createStubModel(script: StubScript, options: { modelId?: string 
       const step = script.steps[context.stepIndex];
 
       if (step !== undefined) {
+        const content: StubGenerateResult["content"] = [];
+        if (step.text !== undefined) {
+          content.push({ type: "text", text: step.text });
+        }
+        content.push({
+          type: "tool-call",
+          toolCallId: `stub-call-${calls}`,
+          toolName: step.toolName,
+          input: JSON.stringify(step.input(context) ?? {}),
+        });
         return {
-          content: [
-            {
-              type: "tool-call",
-              toolCallId: `stub-call-${calls}`,
-              toolName: step.toolName,
-              input: JSON.stringify(step.input(context) ?? {}),
-            },
-          ],
+          content,
           finishReason: "tool-calls",
           usage,
           warnings: [],

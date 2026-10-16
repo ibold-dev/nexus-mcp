@@ -12,7 +12,16 @@ import { runTests, type TestRunResult, type TestRunnerOptions } from "./test-run
  * tests, and any client that speaks MCP can drive the same tools.
  */
 
-export const DEFAULT_MAX_STEPS = 10;
+/**
+ * Upper bound on model turns.
+ *
+ * Ten was enough for the scripted model, which replays a fixed six-step script,
+ * but not for a real one: a live run against a 522-file repository spent
+ * thirteen steps gathering evidence before it wrote anything. The budget is a
+ * ceiling and not a target — a model that finishes early stops early — so it is
+ * set above what the shipped demo is known to need with a real model behind it.
+ */
+export const DEFAULT_MAX_STEPS = 20;
 
 export interface ToolCallRecord {
   toolName: string;
@@ -27,7 +36,7 @@ export interface AgentOptions {
   tools: Record<string, Tool>;
   /** Defaults to the change-impact instructions. */
   system?: string;
-  /** Upper bound on model turns. Defaults to 10. */
+  /** Upper bound on model turns. Defaults to {@link DEFAULT_MAX_STEPS}. */
   maxSteps?: number;
   /** Called after each model turn, for logging a run as it happens. */
   onStep?: (step: { index: number; toolCalls: ToolCallRecord[]; text: string }) => void;
@@ -38,6 +47,14 @@ export interface AgentRun {
   steps: number;
   toolCalls: ToolCallRecord[];
   finishReason: string;
+  /**
+   * False unless the model decided it was finished. A run stopped by its budget
+   * returns the text it was saying alongside the tool call it was in the middle
+   * of, which is mid-loop narration — and narration reads exactly like a report,
+   * which makes it the most dangerous possible thing to print as one. The finish
+   * reason is the only trustworthy signal, so that is what this reads.
+   */
+  reported: boolean;
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
@@ -57,11 +74,14 @@ export async function runAgent(task: string, options: AgentOptions): Promise<Age
     options.onStep?.({ index: index + 1, toolCalls: records, text: step.text });
   });
 
+  const finishReason = String(result.finishReason);
+
   return {
     text: result.text,
     steps: result.steps.length,
     toolCalls,
-    finishReason: String(result.finishReason),
+    finishReason,
+    reported: finishReason === "stop",
     usage: {
       inputTokens: result.usage.inputTokens ?? 0,
       outputTokens: result.usage.outputTokens ?? 0,

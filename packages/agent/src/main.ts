@@ -40,7 +40,7 @@ if (values.help === true) {
       `  --provider <name>   Model provider (default: ${DEFAULT_PROVIDER})`,
       "  --model <id>        Model id for that provider",
       "  --base-url <url>    Endpoint for the provider (or for openai-compatible, if none is named)",
-      "  --max-steps <n>     Model turns to allow (default: 10)",
+      `  --max-steps <n>     Model turns to allow (default: ${DEFAULT_MAX_STEPS})`,
       "  --allow-tests       Let the agent run test files it names",
       "  --json              Print the whole run as JSON",
       "",
@@ -139,6 +139,21 @@ try {
       },
     });
 
+    // A run that was stopped rather than finished has no report to print. Its
+    // text is not necessarily empty — it is whatever the model narrated while
+    // calling its last tool — so printing it would look like a successful run
+    // that found something, which is worse than printing nothing. It is said
+    // plainly on stderr, with the narration quoted so nothing is thrown away,
+    // and the exit code carries the failure.
+    const lastText = run.text.trim() === "" ? "" : ` Its last text was: "${excerpt(run.text)}"`;
+    const missingReport = run.reported
+      ? undefined
+      : `[agent] no report: ${run.steps} step(s), ${run.toolCalls.length} tool call(s), finish ${run.finishReason}. ` +
+        (run.finishReason === "tool-calls"
+          ? "The step budget ran out while the model was still calling tools; raise --max-steps."
+          : "The model was stopped before it wrote one.") +
+        `${lastText}\n`;
+
     if (values.json === true) {
       process.stdout.write(
         `${JSON.stringify(
@@ -155,11 +170,16 @@ try {
           2,
         )}\n`,
       );
-    } else {
+    } else if (missingReport === undefined) {
       process.stdout.write(`${run.text}\n`);
       process.stderr.write(
         `[agent] done in ${run.steps} step(s), ${run.toolCalls.length} tool call(s), finish ${run.finishReason}\n`,
       );
+    }
+
+    if (missingReport !== undefined) {
+      process.stderr.write(missingReport);
+      process.exitCode = 1;
     }
   } finally {
     await connection.close();
