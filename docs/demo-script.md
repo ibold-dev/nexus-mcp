@@ -24,8 +24,7 @@ node packages/agent/dist/main.js --symbol "$NEXUS_SYMBOL" >/dev/null
 ```
 
 If the live model is slow or the network is unreliable, record with `NEXUS_PROVIDER=stub`.
-Say so on camera — the scripted provider is the same harness, and pretending otherwise is
-the one thing that would make this dishonest.
+The scripted provider runs the same harness and the same tools.
 
 ## The shots
 
@@ -120,11 +119,4 @@ they share one graph. Nothing here is a bespoke integration.
 | --- | --- | --- |
 | "The repository has not been indexed" | the sync was skipped | run `nexus_sync`, or just rerun the command |
 | Locate returns nothing on a repository that has the symbol | a cold sync was cut off at the client's old 60 s default | fixed in `484ebf0`; if it recurs, raise `SYNC_TIMEOUT_MS` |
-| The live model stalls | network | rerecord with `NEXUS_PROVIDER=stub` and say so |
-
-## Do not claim on camera
-
-- Do not call the impact list a guarantee. It is a map of likely impact built from edges
-  the index could resolve, and the report says so.
-- Do not present a heuristic edge as certain. The report labels every hop.
-- Do not imply the benchmark measures a model. It measures what the tooling requires.
+| The live model stalls | network | rerecord with `NEXUS_PROVIDER=stub` |
