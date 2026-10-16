@@ -10,8 +10,13 @@
  */
 import { parseArgs } from "node:util";
 import { DEFAULT_MAX_STEPS, runAgent, testRunnerTool } from "./agent.js";
+import { loadDotEnv } from "./env-file.js";
 import { connectNexusTools } from "./mcp-tools.js";
 import { createModel, DEFAULT_PROVIDER, parseProvider, PROVIDER_BASE_URL_ENV, ProviderConfigError } from "./model.js";
+
+// Before anything reads the environment. Everything below this line may have come
+// from `.env`, which a local run would otherwise ignore completely.
+const loadedEnvFile = loadDotEnv();
 
 const { values } = parseArgs({
   options: {
@@ -49,6 +54,11 @@ if (values.help === true) {
     ].join("\n"),
   );
   process.exit(0);
+}
+
+// Named at startup, because "my .env was ignored" is otherwise undiagnosable.
+if (loadedEnvFile !== undefined) {
+  process.stderr.write(`[agent] loaded ${loadedEnvFile}\n`);
 }
 
 const root = values.root ?? process.env.NEXUS_ROOT;

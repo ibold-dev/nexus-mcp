@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { connectGraph } from "@nexus/core";
+import { loadDotEnv } from "./env-file.js";
 import { createNexusServer } from "./server.js";
+
+// Before anything reads the environment. Stdout is the protocol channel here, so
+// even this notice goes to stderr.
+const loadedEnvFile = loadDotEnv();
+if (loadedEnvFile !== undefined) {
+  process.stderr.write(`nexus MCP server: loaded ${loadedEnvFile}\n`);
+}
 
 const root = process.env.NEXUS_ROOT;
 if (!root) {
