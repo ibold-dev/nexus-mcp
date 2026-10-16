@@ -79,7 +79,14 @@ describe("model provider configuration", () => {
   });
 
   it("warns about a base URL that belongs to a provider it did not select", () => {
-    const warnings = createModel({ ANTHROPIC_API_KEY: "key", OPENAI_BASE_URL: "http://proxy/v1" }).warnings;
+    // An endpoint that was pointed somewhere decides the provider on its own —
+    // that is the whole point of the inference — so making it inert takes a
+    // provider that was named.
+    const warnings = createModel({
+      NEXUS_PROVIDER: "anthropic",
+      ANTHROPIC_API_KEY: "key",
+      OPENAI_BASE_URL: "http://proxy/v1",
+    }).warnings;
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/OPENAI_BASE_URL/);
     expect(warnings[0]).toMatch(/anthropic/);
@@ -108,7 +115,6 @@ describe("model provider configuration", () => {
   it("refuses a provider it does not know, and lists the ones it does", () => {
     expect(() => parseProvider("gemini")).toThrow(/Supported providers: anthropic, openai, google, ollama/);
     expect(parseProvider(" Anthropic ")).toBe("anthropic");
-    expect(parseProvider(undefined)).toBe("anthropic");
   });
 
   it("builds the stub without touching the network", () => {

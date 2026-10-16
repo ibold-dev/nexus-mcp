@@ -12,7 +12,15 @@ import { parseArgs } from "node:util";
 import { DEFAULT_MAX_STEPS, runAgent, testRunnerTool } from "./agent.js";
 import { loadDotEnv } from "./env-file.js";
 import { connectNexusTools } from "./mcp-tools.js";
-import { createModel, DEFAULT_PROVIDER, parseProvider, PROVIDER_BASE_URL_ENV, ProviderConfigError } from "./model.js";
+import {
+  createModel,
+  DEFAULT_PROVIDER,
+  discoverModel,
+  parseProvider,
+  PROVIDER_BASE_URL_ENV,
+  ProviderConfigError,
+  resolveProvider,
+} from "./model.js";
 
 // Before anything reads the environment. Everything below this line may have come
 // from `.env`, which a local run would otherwise ignore completely.
@@ -91,7 +99,7 @@ if (values["base-url"] !== undefined) {
   // environment — the flag aims at that provider's own variable.
   const named = values.provider ?? env.NEXUS_PROVIDER;
   const provider =
-    named === undefined || named.trim() === "" ? "openai-compatible" : parseProvider(named, env);
+    named === undefined || named.trim() === "" ? "openai-compatible" : parseProvider(named);
   const name = PROVIDER_BASE_URL_ENV[provider];
   if (name === null) {
     process.stderr.write(`--base-url does not apply to the ${provider} provider.\n`);
@@ -114,13 +122,32 @@ const graphName = process.env.NEXUS_GRAPH ?? "nexus";
 const agentId = process.env.NEXUS_AGENT ?? "nexus-agent";
 
 try {
-  const choice = createModel(env);
-  process.stderr.write(
-    `[agent] ${choice.provider}/${choice.modelId}, graph ${graphName}, root ${root}\n`,
-  );
-  for (const warning of choice.warnings) {
+  // Resolution comes before creation, because for an OpenAI-shaped endpoint the
+  // endpoint is the only thing that knows what its models are called.
+  const resolved = resolveProvider(env);
+  if (resolved.problems.length > 0) {
+    throw new ProviderConfigError(resolved.problems.join(" "));
+  }
+  for (const warning of resolved.warnings) {
     process.stderr.write(`[agent] warning: ${warning}\n`);
   }
+
+  let modelId = resolved.modelId;
+  if (modelId === undefined) {
+    modelId = await discoverModel(resolved);
+  }
+  process.stderr.write(
+    `[agent] ${resolved.providerName}/${modelId} — ${resolved.api} at ${endpointLabel(resolved.baseURL)}, ` +
+      `graph ${graphName}, root ${root}\n`,
+  );
+  if (resolved.modelId === undefined) {
+    process.stderr.write(`[agent] model read from ${resolved.baseURL}/models; set NEXUS_MODEL to choose another\n`);
+    // Written back so that `createModel` resolves the same thing this did: there
+    // is one resolution, and the environment is how the value travels.
+    env.NEXUS_MODEL = modelId;
+  }
+
+  const choice = createModel(env);
 
   const connection = await connectNexusTools({
     root,
@@ -169,6 +196,8 @@ try {
         `${JSON.stringify(
           {
             provider: choice.provider,
+            providerName: choice.providerName,
+            api: choice.api,
             modelId: choice.modelId,
             graph: graphName,
             root,
@@ -206,4 +235,16 @@ try {
 function excerpt(text: string): string {
   const single = text.replace(/\s+/g, " ").trim();
   return single.length <= 120 ? single : `${single.slice(0, 119)}…`;
+}
+
+/** The host a base URL points at, which is the part worth showing. */
+function endpointLabel(baseURL: string | undefined): string {
+  if (baseURL === undefined) {
+    return "the vendor's own host";
+  }
+  try {
+    return new URL(baseURL).host;
+  } catch {
+    return baseURL;
+  }
 }
