@@ -82,3 +82,29 @@ The agent could be pointed at an OpenAI-compatible endpoint, but nothing else co
 - `--base-url <url>` sets the variable belonging to the selected provider, and implies `openai-compatible` when no provider is named — the same rule, spelled the same way, for the command line.
 
 194 tests across 21 files, typecheck and lint clean.
+
+## 2026-10-16 (Day 5, later): a real model, and the two things it broke
+
+Every run of the agent so far went through the scripted model. A real one was owed — the graph layer is only worth anything if an actual model, choosing its own tools, gets better answers out of it — so the agent was pointed at a live OpenAI-shaped gateway (DeepSeek) through the new base-URL override, against the same 522-file zod checkout. It worked, and it cost me two findings.
+
+**The `openai` provider speaks the Responses API, and that is not a free choice.** `@ai-sdk/openai`'s `languageModel` is `createLanguageModel`, whose body is `return createResponsesModel(modelId)` — every request goes to `$OPENAI_BASE_URL/responses`, not `/chat/completions`. Turning the agent to DeepSeek with `NEXUS_PROVIDER=openai` indexed all 522 files (14,685 nodes, so the model had already called `nexus_sync` and got a result) and then died on the next turn:
+
+```
+Agent run failed: No tool call found for tool output with call_id call_00_KDp4cPqwkDe8ojWoazw87425.
+```
+
+DeepSeek does implement `/responses` — an empty body gets `422 missing field \`model\``, which is a real handler and not a 404, and a minimal call returns a complete `response` object — but its tool-result round trip rejects what the SDK sends back. The same server on `openai-compatible` (`/chat/completions`) ran the whole loop without complaint. So the working configuration is the generic provider, and the lesson is worth more than the run: a URL and a vendor name do not tell you which wire protocol is on the other end, and when they disagree the failure lands on the second request, not the first. Both this and the run contract below are now in the README.
+
+**A stopped run printed its narration as the report, and exited 0.** The first live attempt was given twelve steps and needed thirteen. It ended with `finishReason: tool-calls` and the CLI printed *this* as the answer, with a success exit code:
+
+```
+Confirmed the symbol: a leaf with a wide fan-in. Now let me measure the impact breadth and verify a concrete public chain.
+```
+
+That is the sentence the model was saying as it reached for its last tool. `result.text` is the last step's text, so it is non-empty precisely when the run is unfinished, and worth nothing. My first guard checked whether the text was empty, which is the wrong test; the second run showed it printing 123 bytes of narration and passing that guard. What actually distinguishes the cases is the finish reason: `stop` means the model decided it was finished, `tool-calls` means it was stopped. `AgentRun.reported` is now that test and nothing else, the CLI writes to stdout only when a run is reported, quotes the narration on stderr otherwise, and exits non-zero. `DEFAULT_MAX_STEPS` went from 10 to 20, because 10 was chosen when the only evidence was a scripted six-step script.
+
+**What the report was worth when it did finish.** Eleven steps, 25 tool calls, 6,605 bytes. It found 131 direct callers of `normalizeParams` and 461/646 at depths 2 and 3 — each figure labelled truncated rather than presented as a total — and verified individual two-hop chains (`mini string` → `_string` → `normalizeParams`) with `nexus_path` instead of asserting them. It recalled the memory left by the previous session and **re-verified it rather than trusting it**, which is what the prompt asks for and is the first time that instruction has been tested against a model that did not write it. And it surfaced something no earlier run had: `mini string` has 22 resolved callers including four test files, while `classic string` has 0, because classic call sites reach the factory through the namespace object (`z.string()`) and the indexer does not bind those. It reported that as a blind spot rather than as "nothing calls this".
+
+The clearest evidence that the memory layer is doing something came from the two runs side by side: thirteen steps to reconstruct the picture from nothing, eleven when earlier sessions had left facts to check against. Track 02, observed rather than asserted.
+
+197 tests across 22 files, typecheck and lint clean.
