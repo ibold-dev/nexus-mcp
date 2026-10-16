@@ -43,6 +43,25 @@ export const PROVIDER_KEY_ENV: Record<Provider, string | null> = {
 
 export const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1";
 
+/**
+ * The endpoint each provider talks to, and the variable that can point it
+ * somewhere else.
+ *
+ * The AI SDK wrappers compile the vendor host into the bundle and do not read
+ * the vendor environment variables themselves, so a URL takes effect only
+ * because it is passed to the constructor here. Every one of these is optional
+ * except `NEXUS_BASE_URL`, which is the whole identity of `openai-compatible`:
+ * there is no vendor default to fall back on.
+ */
+export const PROVIDER_BASE_URL_ENV: Record<Provider, string | null> = {
+  anthropic: "ANTHROPIC_BASE_URL",
+  openai: "OPENAI_BASE_URL",
+  google: "GEMINI_BASE_URL",
+  ollama: "OLLAMA_BASE_URL",
+  "openai-compatible": "NEXUS_BASE_URL",
+  stub: null,
+};
+
 export class ProviderConfigError extends Error {
   constructor(message: string) {
     super(message);
@@ -54,6 +73,13 @@ export interface ModelChoice {
   provider: Provider;
   modelId: string;
   model: LanguageModel;
+  /**
+   * Configuration that was set and has no effect on the provider chosen — a
+   * base URL belonging to a provider that was not selected. Returned rather
+   * than written to stderr, so the library stays quiet and the caller decides
+   * what to do with it.
+   */
+  warnings: string[];
 }
 
 export interface CreateModelOptions {
@@ -68,17 +94,29 @@ export interface CreateModelOptions {
  * than one that refused to start.
  */
 export function createModel(env: NodeJS.ProcessEnv = process.env, options: CreateModelOptions = {}): ModelChoice {
-  const provider = parseProvider(env.NEXUS_PROVIDER);
+  const provider = parseProvider(env.NEXUS_PROVIDER, env);
   const modelId = env.NEXUS_MODEL?.trim() || DEFAULT_MODEL_IDS[provider];
+  const baseURL = providerBaseUrl(env, provider);
+  const warnings = unusedBaseUrlWarnings(env, provider);
 
   switch (provider) {
     case "anthropic": {
       const apiKey = requireEnv(env, "ANTHROPIC_API_KEY", provider);
-      return { provider, modelId, model: createAnthropic({ apiKey }).languageModel(modelId) };
+      return {
+        provider,
+        modelId,
+        warnings,
+        model: createAnthropic({ apiKey, ...baseUrlOption(baseURL) }).languageModel(modelId),
+      };
     }
     case "openai": {
       const apiKey = requireEnv(env, "OPENAI_API_KEY", provider);
-      return { provider, modelId, model: createOpenAI({ apiKey }).languageModel(modelId) };
+      return {
+        provider,
+        modelId,
+        warnings,
+        model: createOpenAI({ apiKey, ...baseUrlOption(baseURL) }).languageModel(modelId),
+      };
     }
     case "google": {
       const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() || env.GEMINI_API_KEY?.trim();
@@ -87,20 +125,30 @@ export function createModel(env: NodeJS.ProcessEnv = process.env, options: Creat
           `NEXUS_PROVIDER=google needs GOOGLE_GENERATIVE_AI_API_KEY (or GEMINI_API_KEY). Set it, or pick another provider: ${PROVIDERS.join(", ")}.`,
         );
       }
-      return { provider, modelId, model: createGoogleGenerativeAI({ apiKey }).languageModel(modelId) };
+      return {
+        provider,
+        modelId,
+        warnings,
+        model: createGoogleGenerativeAI({ apiKey, ...baseUrlOption(baseURL) }).languageModel(modelId),
+      };
     }
     case "ollama": {
       // Ollama speaks the OpenAI-compatible protocol and needs no credential,
       // so the whole agent runs locally with nothing but the graph.
-      const baseURL = env.OLLAMA_BASE_URL?.trim() || OLLAMA_DEFAULT_BASE_URL;
       return {
         provider,
         modelId,
-        model: createOpenAICompatible({ name: "ollama", baseURL, apiKey: "ollama" }).languageModel(modelId),
+        warnings,
+        model: createOpenAICompatible({
+          name: "ollama",
+          baseURL: baseURL ?? OLLAMA_DEFAULT_BASE_URL,
+          apiKey: "ollama",
+        }).languageModel(modelId),
       };
     }
     case "openai-compatible": {
-      const baseURL = requireEnv(env, "NEXUS_BASE_URL", provider);
+      // Required, not optional: this provider is defined by its URL.
+      const compatibleBaseURL = requireEnv(env, "NEXUS_BASE_URL", provider);
       if (modelId === "") {
         throw new ProviderConfigError(
           "NEXUS_PROVIDER=openai-compatible needs NEXUS_MODEL, the model id served at NEXUS_BASE_URL.",
@@ -111,9 +159,10 @@ export function createModel(env: NodeJS.ProcessEnv = process.env, options: Creat
       return {
         provider,
         modelId,
+        warnings,
         model: createOpenAICompatible({
           name,
-          baseURL,
+          baseURL: compatibleBaseURL,
           ...(apiKey === undefined ? {} : { apiKey }),
         }).languageModel(modelId),
       };
@@ -121,19 +170,64 @@ export function createModel(env: NodeJS.ProcessEnv = process.env, options: Creat
     case "stub": {
       const script =
         options.stubScript ?? defaultStubScript(env.NEXUS_STUB_SYMBOL?.trim() || "run");
-      return { provider, modelId, model: createStubModel(script, { modelId }) };
+      return { provider, modelId, warnings, model: createStubModel(script, { modelId }) };
     }
   }
 }
 
-export function parseProvider(value: string | undefined): Provider {
-  const name = (value ?? DEFAULT_PROVIDER).trim().toLowerCase();
+/**
+ * The provider to use, and the one place a configuration choice is inferred
+ * rather than named.
+ *
+ * An explicit `NEXUS_PROVIDER` always wins. With no provider named, a base URL
+ * is on its own the OpenAI-compatible case, because a bare URL can only be an
+ * OpenAI-shaped server — it says nothing about which vendor's API is behind it.
+ * The inference fills in a provider; it never fills in a model, so a run that
+ * needs `NEXUS_MODEL` still fails fast and says so.
+ */
+export function parseProvider(value: string | undefined, env: NodeJS.ProcessEnv = {}): Provider {
+  const name = (value ?? "").trim().toLowerCase();
+  if (name === "") {
+    return env.NEXUS_BASE_URL?.trim() ? "openai-compatible" : DEFAULT_PROVIDER;
+  }
   if ((PROVIDERS as readonly string[]).includes(name)) {
     return name as Provider;
   }
   throw new ProviderConfigError(
     `Unknown NEXUS_PROVIDER "${value}". Supported providers: ${PROVIDERS.join(", ")}.`,
   );
+}
+
+function baseUrlOption(baseURL: string | undefined): { baseURL?: string } {
+  return baseURL === undefined ? {} : { baseURL };
+}
+
+function providerBaseUrl(env: NodeJS.ProcessEnv, provider: Provider): string | undefined {
+  const name = PROVIDER_BASE_URL_ENV[provider];
+  return name === null ? undefined : env[name]?.trim() || undefined;
+}
+
+/**
+ * A base URL that belongs to a provider other than the selected one does
+ * nothing, and silently doing nothing is how an afternoon gets lost: the URL
+ * was exported in a shell profile, or copied from the example file, and the
+ * requests went to the vendor anyway. Each one is named.
+ */
+function unusedBaseUrlWarnings(env: NodeJS.ProcessEnv, selected: Provider): string[] {
+  const warnings: string[] = [];
+  for (const provider of PROVIDERS) {
+    if (provider === selected) {
+      continue;
+    }
+    const name = PROVIDER_BASE_URL_ENV[provider];
+    if (name === null || !env[name]?.trim()) {
+      continue;
+    }
+    warnings.push(
+      `${name} is set, but the provider is ${selected}: it applies to ${provider} and is being ignored.`,
+    );
+  }
+  return warnings;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string, provider: Provider): string {

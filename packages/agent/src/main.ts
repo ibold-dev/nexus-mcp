@@ -11,7 +11,7 @@
 import { parseArgs } from "node:util";
 import { DEFAULT_MAX_STEPS, runAgent, testRunnerTool } from "./agent.js";
 import { connectNexusTools } from "./mcp-tools.js";
-import { createModel, DEFAULT_PROVIDER, ProviderConfigError } from "./model.js";
+import { createModel, DEFAULT_PROVIDER, parseProvider, PROVIDER_BASE_URL_ENV, ProviderConfigError } from "./model.js";
 
 const { values } = parseArgs({
   options: {
@@ -20,6 +20,7 @@ const { values } = parseArgs({
     task: { type: "string" },
     provider: { type: "string" },
     model: { type: "string" },
+    "base-url": { type: "string" },
     "max-steps": { type: "string" },
     "allow-tests": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
@@ -38,6 +39,7 @@ if (values.help === true) {
       "  --task <text>       What to ask, instead of the default impact question",
       `  --provider <name>   Model provider (default: ${DEFAULT_PROVIDER})`,
       "  --model <id>        Model id for that provider",
+      "  --base-url <url>    Endpoint for the provider (or for openai-compatible, if none is named)",
       "  --max-steps <n>     Model turns to allow (default: 10)",
       "  --allow-tests       Let the agent run test files it names",
       "  --json              Print the whole run as JSON",
@@ -73,6 +75,20 @@ if (values.provider !== undefined) {
 if (values.model !== undefined) {
   env.NEXUS_MODEL = values.model;
 }
+if (values["base-url"] !== undefined) {
+  // A URL with no provider named means an OpenAI-shaped server, the same rule
+  // the environment variables follow. With a provider named — here or in the
+  // environment — the flag aims at that provider's own variable.
+  const named = values.provider ?? env.NEXUS_PROVIDER;
+  const provider =
+    named === undefined || named.trim() === "" ? "openai-compatible" : parseProvider(named, env);
+  const name = PROVIDER_BASE_URL_ENV[provider];
+  if (name === null) {
+    process.stderr.write(`--base-url does not apply to the ${provider} provider.\n`);
+    process.exit(2);
+  }
+  env[name] = values["base-url"];
+}
 if (env.NEXUS_STUB_SYMBOL === undefined && symbol !== undefined) {
   env.NEXUS_STUB_SYMBOL = symbol;
 }
@@ -92,6 +108,9 @@ try {
   process.stderr.write(
     `[agent] ${choice.provider}/${choice.modelId}, graph ${graphName}, root ${root}\n`,
   );
+  for (const warning of choice.warnings) {
+    process.stderr.write(`[agent] warning: ${warning}\n`);
+  }
 
   const connection = await connectNexusTools({
     root,

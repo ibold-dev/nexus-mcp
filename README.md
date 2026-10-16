@@ -139,18 +139,29 @@ is useful to this agent, it is useful to the client you actually use.
 
 The provider is a switch, not a hard dependency. Claude is the default:
 
-| `NEXUS_PROVIDER` | Default model | Key |
-| --- | --- | --- |
-| `anthropic` (default) | `claude-sonnet-4-5` | `ANTHROPIC_API_KEY` |
-| `openai` | `gpt-5.6` | `OPENAI_API_KEY` |
-| `google` | `gemini-3.8-flash` | `GOOGLE_GENERATIVE_AI_API_KEY` |
-| `ollama` | `qwen3.5:9b` | none, local |
-| `openai-compatible` | set `NEXUS_MODEL` | none |
-| `stub` | `stub-1` | none, scripted, no network |
+| `NEXUS_PROVIDER` | Default model | Key | Endpoint override |
+| --- | --- | --- | --- |
+| `anthropic` (default) | `claude-sonnet-4-5` | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` |
+| `openai` | `gpt-5.6` | `OPENAI_API_KEY` | `OPENAI_BASE_URL` |
+| `google` | `gemini-3.8-flash` | `GOOGLE_GENERATIVE_AI_API_KEY` | `GEMINI_BASE_URL` |
+| `ollama` | `qwen3.5:9b` | none, local | `OLLAMA_BASE_URL` |
+| `openai-compatible` | set `NEXUS_MODEL` | none | `NEXUS_BASE_URL` (required) |
+| `stub` | `stub-1` | none, scripted, no network | — |
 
 A missing key fails at startup and names the variable. There is no silent fallback: an
 agent that quietly answered with a different model than the one configured would be
 worse than one that refused to start.
+
+Every endpoint override is optional, and it is the same variable name that provider's
+own SDK uses, so whatever already points your other tools at a gateway points the agent
+at it too. They are read and passed explicitly, because the AI SDK wrappers bundle the
+vendor host and do not look at those variables themselves. `NEXUS_BASE_URL` is the one
+that is not an override: it *is* the `openai-compatible` provider, so setting it with no
+`NEXUS_PROVIDER` selects that provider — a bare URL says nothing about which vendor's API
+is behind it, and this is the only choice Nexus infers on your behalf. A URL set for a
+provider that is not the selected one prints a single line to stderr naming it, rather
+than doing nothing quietly. Pass the version prefix each provider expects: `/v1` for
+Anthropic, OpenAI and Ollama, `/v1beta` for Google.
 
 The `stub` provider is a scripted `LanguageModelV2`. It turns the whole tool loop into
 something a test can assert on — which tool, with which arguments, in which order, and
