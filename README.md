@@ -163,6 +163,14 @@ provider that is not the selected one prints a single line to stderr naming it, 
 than doing nothing quietly. Pass the version prefix each provider expects: `/v1` for
 Anthropic, OpenAI and Ollama, `/v1beta` for Google.
 
+The `openai` provider speaks the **Responses API** (`/responses`), which is what the
+OpenAI SDK defaults to, and the `openai-compatible` provider speaks **Chat Completions**
+(`/chat/completions`). A third-party server that implements only one of them has to be
+pointed at the provider that speaks that one — a gateway with only Chat Completions
+belongs on `openai-compatible`, even if its API is otherwise OpenAI-shaped. Getting this
+backwards does not fail cleanly: the first request usually succeeds, and the tool result
+on the way back is what the server rejects.
+
 The `stub` provider is a scripted `LanguageModelV2`. It turns the whole tool loop into
 something a test can assert on — which tool, with which arguments, in which order, and
 what the run left in the graph — and it is what the tests, the benchmark, and the demo
@@ -171,6 +179,13 @@ use, so any of them is reproducible without a network or a bill.
 The agent may also run tests, and it is off unless `NEXUS_ALLOW_TESTS=1` is set exactly.
 When it is on, one fixed command is allowed, test files only, repository-relative paths
 that must stay inside the root, no shell, and a timeout that kills the child.
+
+The run's contract with whatever is scripting it: the report, and only the report, goes
+to stdout. A run that was *stopped* rather than finished — the model spent its whole
+`--max-steps` budget still calling tools — prints nothing to stdout, quotes the sentence
+the model was mid-way through on stderr, and exits non-zero, because the text such a run
+carries is narration and reads like a report. `--json` always emits the structured run,
+including `reported: false`, so a caller can check rather than guess.
 
 ---
 
